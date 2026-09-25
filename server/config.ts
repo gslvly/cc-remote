@@ -60,12 +60,12 @@ export function loadConfig(): { config: Config; created: boolean } {
 }
 
 /**
- * tailscale 的 CGNAT 段 100.64.0.0/10。只看 utun 网卡（macOS 上 VPN 都是 utun）：
- * 有的网络给 Wi-Fi 分的也是这个段，绑到它上面就把服务暴露给局域网了
+ * tailscale 的 CGNAT 段 100.64.0.0/10。只看 tailscale 的网卡：macOS 上是 utun*（VPN 都是 utun），
+ * Linux 上是 tailscale0，Windows 上叫 Tailscale。有的网络给 Wi-Fi 分的也是这个段，绑到它上面就把服务暴露给局域网了
  */
 export function tailscaleIPv4(interfaces = networkInterfaces()): string | undefined {
   for (const [name, addrs] of Object.entries(interfaces)) {
-    if (!name.startsWith('utun')) continue
+    if (!/^(utun|tailscale)/i.test(name)) continue
     for (const a of addrs ?? []) {
       if (a.family !== 'IPv4') continue
       const [o1, o2] = a.address.split('.').map(Number)
@@ -81,7 +81,7 @@ export function resolveHost(host: string, find = tailscaleIPv4): string | undefi
 
 /**
  * 等到有监听地址。开机时 tailscale 往往比服务端晚连上，这时退回 127.0.0.1 手机就连不上了，
- * 所以一直等（launchd 下也不退出重来，省得日志里刷屏）
+ * 所以一直等（作为后台服务跑时也不退出重来，省得日志里刷屏）
  */
 export async function waitForHost(host: string, find = tailscaleIPv4, intervalMs = 2000): Promise<string> {
   let waited = false
@@ -102,7 +102,7 @@ export function resolveRoots(roots: string[]): string[] {
   if (!Array.isArray(roots)) throw new Error(`${CONFIG_FILE} 里的 roots 要写成数组`)
   const out: string[] = []
   for (const r of roots) {
-    const p = r === '~' || r.startsWith('~/') ? join(homedir(), r.slice(1)) : r
+    const p = /^~($|[\\/])/.test(r) ? join(homedir(), r.slice(1)) : r
     try {
       if (!isAbsolute(p)) throw new Error('要写绝对路径或 ~ 开头')
       const real = realpathSync(p)

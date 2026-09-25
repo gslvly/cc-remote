@@ -1,11 +1,16 @@
 // 选目录用：只看目录、只在 roots 内。不是文件浏览器，不读文件内容（除了 .git/HEAD 取分支）
 import { readdir, readFile, realpath, stat } from 'node:fs/promises'
-import { basename, isAbsolute, join, resolve } from 'node:path'
+import path, { basename, isAbsolute, join, resolve } from 'node:path'
 import type { DirEntry } from '../shared/protocol'
 
+/** child 是 dir 本身或在 dir 里面。用 relative 判断，Windows 的 \ 和盘符大小写也对；p 传 path.win32 是给单测用的 */
+export function within(child: string, dir: string, p: typeof path = path) {
+  const r = p.relative(dir, child)
+  return r === '' || (r !== '..' && !r.startsWith('..' + p.sep) && !p.isAbsolute(r))
+}
+
 /** real 必须是真实路径（realpath 过），roots 也是 */
-export const inRoots = (real: string, roots: string[]) =>
-  roots.some((r) => r === '/' || real === r || real.startsWith(r + '/'))
+export const inRoots = (real: string, roots: string[], p: typeof path = path) => roots.some((r) => within(real, r, p))
 
 const isDir = (p: string) => stat(p).then((s) => s.isDirectory(), () => false)
 

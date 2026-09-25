@@ -148,7 +148,7 @@ export class SessionManager {
   }
 
   private async doScan() {
-    const holders = await scanHolders()
+    const holders = await scanHolders((id) => this.sessions.has(id))
     this.holders = holders
     for (const [id, h] of holders) {
       let s = this.sessions.get(id)

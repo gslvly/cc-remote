@@ -3,12 +3,13 @@
 > Control your local **Claude Code** from your phone. 手机端远程遥控本机 Claude Code 的轻量 Web UI。
 >
 > **English:** cc-remote is a mobile-first remote control for [Claude Code](https://code.claude.com).
-> It runs on your Mac over Tailscale and lets you drive multiple real Claude Code sessions from a
-> phone PWA: streaming chat, tool cards, permission approvals, `AskUserQuestion` answers, plan
-> approvals, terminal-session watching, and push notifications when input is needed.
-> **中文：** cc-remote 是一个手机优先的 Claude Code 遥控器。服务端跑在你的 Mac 上（经 Tailscale
-> 连接），手机 PWA 里可以同时指挥多个真实的 Claude Code 会话：流式输出、工具卡片、权限审批、
-> 问答、计划批准、终端会话旁观，以及需要介入时推送到手机。
+> It runs on your computer (macOS / Linux / Windows) over Tailscale and lets you drive multiple real
+> Claude Code sessions from a phone PWA: streaming chat, tool cards, permission approvals,
+> `AskUserQuestion` answers, plan approvals, terminal-session watching, and push notifications when
+> input is needed.
+> **中文：** cc-remote 是一个手机优先的 Claude Code 遥控器。服务端跑在你的电脑上（macOS / Linux /
+> Windows，经 Tailscale 连接），手机 PWA 里可以同时指挥多个真实的 Claude Code 会话：流式输出、
+> 工具卡片、权限审批、问答、计划批准、终端会话旁观，以及需要介入时推送到手机。
 
 关键词 / Keywords: `claude-code` `claude-code-remote` `remote-control` `mobile` `pwa` `ios`
 `android` `tailscale` `agent-sdk` `coding-agent` `claude-code-web-ui` `手机` `远程控制` `编程智能体`
@@ -31,9 +32,9 @@
 
 ### 环境要求 / Requirements
 
-- macOS（服务端，暂只支持 macOS：Tailscale 取地址、防睡眠、常驻、终端旁观都有 macOS 专属实现）+ 已登录的 [Claude Code](https://code.claude.com)（`claude` CLI 能正常用）
+- macOS、Linux 或 Windows（跑服务端的电脑）+ 已登录的 [Claude Code](https://code.claude.com)（终端里 `claude` 能正常用；Windows 上 Claude Code 还需要 Git for Windows，见它的安装文档）
 - [Bun](https://bun.sh) ≥ 1.3
-- [Tailscale](https://tailscale.com)（手机与 Mac 在同一 tailnet，服务端默认只监听 100.x 地址）
+- [Tailscale](https://tailscale.com)（手机与电脑在同一 tailnet，服务端默认只监听 100.x 地址）
 - 手机浏览器（iOS Safari / Android Chrome，用于安装 PWA；推送需 Bark 或 ntfy App）
 
 ### 安装与运行 / Install & Run
@@ -55,14 +56,14 @@ bun run check     # 类型检查 + 单测（改代码前先跑通）
 
 ### 配置 / Configuration
 
-配置文件 `~/.cc-remote/config.json`（首次启动自动生成，权限 600）：
+配置文件 `~/.cc-remote/config.json`（首次启动自动生成；macOS / Linux 上权限 600，Windows 上在用户目录 `%USERPROFILE%\.cc-remote\` 下）：
 
 ```jsonc
 {
   "token": "<登录 token，自动生成>",
   "host": "tailscale", // "tailscale" = 自动取本机 100.x 地址；只在本机用可写 "127.0.0.1"
   "port": 8686,
-  "roots": ["~"], // 允许浏览、开会话的目录白名单
+  "roots": ["~"], // 允许浏览、开会话的目录白名单；绝对路径或 ~ 开头，Windows 写 "D:\\code"
   "maxLive": 6, // 同时活着的 claude 子进程上限
   "idleMinutes": 30, // 空闲多久回收子进程（下次发消息自动 resume）
   "push": {
@@ -75,23 +76,115 @@ bun run check     # 类型检查 + 单测（改代码前先跑通）
 
 Bark / ntfy 配一个即可，也可都配；不配就不推送。`server` 不写即用公共服务。
 
-### 常驻 Mac / Keep It Running
+### 需要你自己配的 / What You Need to Set Up Yourself
 
-```bash
-bun scripts/launchd.ts install   # 装成 launchd 用户代理：登录自启、退出拉起
-bun scripts/launchd.ts restart    # 改了服务端代码后重启
-bun scripts/launchd.ts status     # 看运行状态
-bun scripts/launchd.ts uninstall  # 卸载
+cc-remote 只负责拉起 Claude Code、提供页面和推送。下面这些各系统做法不同，由你按自己的机器配。
+
+#### 1. 网络：手机能连到电脑
+
+- 电脑和手机都装 Tailscale，登录同一个账号。服务端会自动找 Tailscale 网卡上的 100.x 地址
+  （macOS 的 `utun*`、Linux 的 `tailscale0`、Windows 的 `Tailscale`），找不到就一直等，日志里会提示。
+- 防火墙要放行：
+  - **Windows**：第一次启动时防火墙会弹窗问是否允许 bun 访问网络，选允许。错过了就去「Windows 安全中心 → 防火墙和网络保护 → 允许应用通过防火墙」里加上 bun。
+  - **macOS**：开了防火墙的话，弹窗时允许 bun 接受传入连接。
+  - **Linux**：用了 ufw 的话执行 `sudo ufw allow in on tailscale0 to any port 8686`。
+
+#### 2. 不让电脑睡着
+
+电脑睡着了 Tailscale 也断了，手机连不上，也叫不醒它。cc-remote 不管睡眠，要手机随时能连，就把电脑设成**接电源时不自动睡眠**（关屏幕、锁屏不影响）：
+
+| 系统 | 设置 | 命令 |
+|---|---|---|
+| macOS | 系统设置 → 电池 → 选项（台式机在「能源」里）→ 打开「显示器关闭时防止自动睡眠」 | `sudo pmset -c sleep 0` |
+| Linux | 桌面的电源设置里关掉「自动挂起」 | `sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target` |
+| Windows | 设置 → 系统 → 电源 → 接通电源时的睡眠设成「从不」 | `powercfg /change standby-timeout-ac 0` |
+
+笔记本**合上盖子**还是会睡：
+- **macOS**：要么接外接显示器，要么执行 `sudo pmset -a disablesleep 1`（不用了记得改回 0）。
+- **Linux**：在 `/etc/systemd/logind.conf` 里设 `HandleLidSwitchExternalPower=ignore`，再执行 `sudo systemctl restart systemd-logind`。
+- **Windows**：控制面板 → 电源选项 → 选择关闭笔记本计算机盖的功能 → 接通电源时设为「不采取任何操作」。
+
+#### 3. 开机自启、挂了拉起（可选）
+
+先 `bun run build` 构建好前端。注意三点：
+- 以**你自己的用户身份**跑，不要装成系统服务，因为 Claude 的登录态是跟用户走的。
+- 后台服务不读 `.zshrc` / `.bashrc`，所以代理（`https_proxy` 等）、`ANTHROPIC_*` 这类环境变量要写进服务的配置里。
+- 改了服务端代码要重启服务；只改前端的话 build 完就行，页面会自己刷新。
+
+下面示例里的路径都换成你自己的（`which bun` / `Get-Command bun` 查 bun 在哪）。
+
+**macOS（launchd 用户代理）**：新建 `~/Library/LaunchAgents/com.cc-remote.server.plist`
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.cc-remote.server</string>
+  <key>ProgramArguments</key>
+  <array><string>/Users/you/.bun/bin/bun</string><string>server/index.ts</string></array>
+  <key>WorkingDirectory</key><string>/Users/you/cc-remote</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>/Users/you/.bun/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <!-- 需要代理的话：<key>https_proxy</key><string>http://127.0.0.1:7890</string> -->
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/Users/you/Library/Logs/cc-remote.log</string>
+  <key>StandardErrorPath</key><string>/Users/you/Library/Logs/cc-remote.log</string>
+</dict>
+</plist>
 ```
 
-说明：用**用户代理**而非系统守护进程，因为 Claude 登录态在用户钥匙串里；
-Mac 睡着 tailnet 就连不上——需要随时连得上请设成接电源时不自动睡眠，
-服务端只在会话运行 / 等审批时挂 `caffeinate` 防止睡着。日志见
-`~/Library/Logs/cc-remote.log`。
+```bash
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.cc-remote.server.plist  # 载入并启动
+launchctl kickstart -k gui/$(id -u)/com.cc-remote.server                            # 重启
+launchctl bootout gui/$(id -u)/com.cc-remote.server                                 # 卸载
+```
+
+roots 在 `~/Desktop`、`~/Documents` 下却列不出目录时，给 bun 开「完全磁盘访问权限」。
+
+**Linux（systemd 用户服务）**：新建 `~/.config/systemd/user/cc-remote.service`
+
+```ini
+[Unit]
+Description=cc-remote
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/cc-remote
+ExecStart=%h/.bun/bin/bun server/index.ts
+Environment=PATH=%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
+# Environment=https_proxy=http://127.0.0.1:7890
+Restart=always
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user daemon-reload && systemctl --user enable --now cc-remote  # 启用并启动
+loginctl enable-linger $USER             # 没登录桌面也跑
+systemctl --user restart cc-remote       # 重启
+journalctl --user -u cc-remote -f        # 看日志
+```
+
+**Windows（任务计划程序，登录后启动）**：在 cc-remote 目录里用 PowerShell 执行
+
+```powershell
+$action   = New-ScheduledTaskAction -Execute (Get-Command bun).Source -Argument 'server/index.ts' -WorkingDirectory (Get-Location).Path
+$trigger  = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+Register-ScheduledTask -TaskName cc-remote -Action $action -Trigger $trigger -Settings $settings
+```
+
+`Start-ScheduledTask cc-remote` 立即启动，`Stop-ScheduledTask cc-remote` 停止，`Unregister-ScheduledTask cc-remote` 删除。
+运行时会开一个命令行窗口，日志就在里面，关掉窗口服务就停了。代理这类变量设成用户环境变量，然后注销重新登录才会生效。
 
 ### 手机端 / On Your Phone
 
-1. 浏览器打开 `http://<Mac 的 100.x IP>:8686`，用 token 登录一次
+1. 浏览器打开 `http://<电脑的 100.x IP>:8686`，用 token 登录一次
 2. 「添加到主屏」（iOS 用 Safari 分享菜单，Android 用 Chrome 菜单），得到全屏 PWA
 3. 推送：Bark 填 key，ntfy 订阅你配的 topic；点推送里的链接直达对应会话
 
@@ -119,7 +212,7 @@ Mac 睡着 tailnet 就连不上——需要随时连得上请设成接电源时�
 手机 PWA ──tailnet──┤
                     └─ 内容流 SSE（只连当前看的会话，切走即断）
 
-Mac: cc-remote server (Bun + Hono)
+电脑: cc-remote server (Bun + Hono)
   ├─ 托管会话 ×N：Agent SDK query()，每会话一个 claude 子进程 + 输出缓冲
   ├─ 终端会话旁观：读 ~/.claude/sessions 登记表 + 监听 transcript 追加
   ├─ 读 ~/.claude/projects（历史会话、最近目录）
@@ -132,10 +225,10 @@ Mac: cc-remote server (Bun + Hono)
 
 ## 安全 / Security
 
-- 默认只监听本机 Tailscale 地址（100.64.0.0/10 的 utun 网卡），**不要在公网服务器上反代**——这个页面等同远程 shell
+- 默认只监听本机 Tailscale 地址（Tailscale 网卡上的 100.64.0.0/10），**不要在公网服务器上反代**——这个页面等同远程 shell
 - 登录 token 存 httpOnly + SameSite=Strict cookie；`curl` 可用 `Authorization: Bearer <token>`
 - `~/.claude/sessions/` 下的 `.key` 文件是密钥：只读 `.json` 登记表，绝不读取或外传 `.key`
-- 需要 HTTPS（如 iOS Web Push）：自有域名 A 记录指向 Mac 的 tailscale IP，Caddy 用 DNS-01 签证书
+- 需要 HTTPS（如 iOS Web Push）：自有域名 A 记录指向电脑的 tailscale IP，Caddy 用 DNS-01 签证书
 
 ## 开发 / Development
 

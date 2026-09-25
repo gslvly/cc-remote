@@ -1,33 +1,12 @@
 import { createEffect, createMemo, createResource, createSignal, For, on, Show } from 'solid-js'
 import type { FsList } from '../../../shared/protocol'
 import { api } from '../api'
-import { basename, errorText, shortPath } from '../format'
+import { basename, crumbs, errorText, rootLabel } from '../format'
 import { go } from '../router'
 
 // 上次浏览到的目录、是否显示隐藏目录，下次打开接着用
 const PATH_KEY = 'ccr-browse-path'
 const HIDDEN_KEY = 'ccr-browse-hidden'
-
-/** root 显示成 ~ 或完整路径 */
-const rootLabel = (p: string) => shortPath(p, Infinity)
-
-/** 面包屑：[全部（多个 root 时）] / root / 子目录… */
-function crumbs(list: FsList): { label: string; path: string | null }[] {
-  const out: { label: string; path: string | null }[] = list.roots.length > 1 ? [{ label: '全部', path: null }] : []
-  const path = list.path
-  if (!path) return out
-  const root = list.roots
-    .filter((r) => r === '/' || path === r || path.startsWith(r + '/'))
-    .sort((a, b) => b.length - a.length)[0]
-  if (!root) return [...out, { label: path, path }]
-  out.push({ label: rootLabel(root), path: root })
-  let cur = root
-  for (const seg of path.slice(root.length).split('/').filter(Boolean)) {
-    cur = cur === '/' ? `/${seg}` : `${cur}/${seg}`
-    out.push({ label: seg, path: cur })
-  }
-  return out
-}
 
 type Target = { path: string | null; hidden: boolean }
 

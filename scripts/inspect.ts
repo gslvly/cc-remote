@@ -34,7 +34,8 @@ const tail = <T>(xs: T[]) => (all ? xs : xs.slice(-40))
 const more = (n: number, shown: number) => (shown < n ? `，只列最后 ${shown} 条，--all 看全部` : '')
 
 const meta = await getSessionInfo(id)
-const holder = (await scanHolders()).get(id)
+// 不知道服务端里有哪些会话：服务端自己起的子进程也会列成持有者
+const holder = (await scanHolders(() => false)).get(id)
 console.log(`${id}  ${meta?.cwd}`)
 console.log(`标题：${meta?.summary}  修改：${meta && new Date(meta.lastModified).toLocaleString()}  ${meta?.fileSize} 字节`)
 console.log(`终端：${holder ? `pid ${holder.pid} ${holder.status}` : '无'}`)

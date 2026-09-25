@@ -1,6 +1,6 @@
 import { listSessions } from '@anthropic-ai/claude-agent-sdk'
 import { existsSync, readFileSync, statSync } from 'node:fs'
-import { join, normalize } from 'node:path'
+import { join, posix } from 'node:path'
 import { type Context, Hono } from 'hono'
 import { type SSEMessage, streamSSE } from 'hono/streaming'
 import type {
@@ -18,17 +18,16 @@ import type {
   SwitchableMode,
 } from '../shared/protocol'
 import { createAuth } from './auth'
-import { Awake } from './awake'
 import { CONFIG_FILE, loadConfig, resolveRoots, waitForHost } from './config'
 import { Favorites } from './favorites'
-import { checkDir, dirEntry, gitBranch, listDirs } from './fs'
+import { checkDir, dirEntry, gitBranch, listDirs, within } from './fs'
 import { LimitError, SessionManager } from './manager'
 import { pusher } from './push'
 import { ConflictError, type EventId } from './session'
 import { isEmpty, titleOf } from './transcript'
 import { quota } from './usage'
 
-// 输出到文件时（launchd、e2e）每行带上时间
+// 输出到文件时（后台服务、e2e）每行带上时间
 if (!process.stdout.isTTY) {
   for (const k of ['log', 'warn', 'error'] as const) {
     const write = console[k]
@@ -41,9 +40,6 @@ const auth = createAuth(config.token)
 const roots = resolveRoots(config.roots)
 const sessions = new SessionManager({ maxLive: config.maxLive, idleMinutes: config.idleMinutes, roots })
 const favorites = new Favorites()
-// 托管会话在跑、等审批时不让 Mac 空闲睡眠
-const awake = new Awake()
-sessions.watch((list) => awake.set(list.some((s) => s.live && s.state !== 'idle')))
 const DIST = join(import.meta.dir, '../web/dist')
 
 const isDir = (p: string) => {
@@ -340,11 +336,12 @@ api.post('/sessions/:id/close', (c) => {
 const app = new Hono()
 app.route('/api', api)
 
-// 静态文件：index.html、sw.js、manifest、图标都 no-cache（每次向服务端确认）；/assets/* 文件名带 hash，永久缓存
+// 静态文件：index.html、sw.js、manifest、图标都 no-cache（每次向服务端确认）；/assets/* 文件名带 hash，永久缓存。
+// URL 路径按 / 处理，拼成本机路径后再判断在不在 dist 里（Windows 上是 \）
 app.get('*', async (c) => {
-  const path = normalize(decodeURIComponent(new URL(c.req.url).pathname))
+  const path = posix.normalize(decodeURIComponent(new URL(c.req.url).pathname))
   const file = join(DIST, path)
-  if (file.startsWith(DIST + '/') && !path.endsWith('/') && existsSync(file) && !isDir(file)) {
+  if (within(file, DIST) && !path.endsWith('/') && existsSync(file) && !isDir(file)) {
     const immutable = path.startsWith('/assets/')
     return new Response(Bun.file(file), {
       headers: { 'Cache-Control': immutable ? 'public, max-age=31536000, immutable' : 'no-cache' },
@@ -374,6 +371,8 @@ const targets = Object.keys(config.push ?? {})
 console.log(`[cc-remote] 推送：${targets.length ? `${targets.join('、')}，深链接 ${publicUrl}/#/s/<id>` : '没配'}`)
 if (created) console.log(`[cc-remote] 已生成配置 ${CONFIG_FILE}\n[cc-remote] 登录 token：${config.token}`)
 else console.log(`[cc-remote] 登录 token 见 ${CONFIG_FILE}`)
+// 防睡眠、开机自启都由用户按自己的系统配，服务端不管
+console.log('[cc-remote] 提示：电脑睡着了手机就连不上，要随时能连请在系统设置里关掉自动睡眠（见 README「需要你自己配的」）')
 
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, () => {
