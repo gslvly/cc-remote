@@ -1,0 +1,9 @@
+{
+  "extends": "../server/tsconfig.json",
+  "compilerOptions": {
+    // page.evaluate 里的代码在浏览器里跑
+    "lib": ["es2023", "dom"]
+  },
+  // 前端的单测也在这检查：要 bun 的类型
+  "include": ["./**/*.ts", "../web/src/**/*.test.ts"]
+}

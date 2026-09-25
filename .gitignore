@@ -1,0 +1,13 @@
+node_modules/
+web/dist/
+.DS_Store
+scripts/e2e/out/
+
+# 本地工具与私密目录，不进仓库
+.codegraph/
+.claude/
+docs/
+*.log
+.env
+.env.*
+coverage/

@@ -1,0 +1,7 @@
+<!-- PNG 图标由此生成：rsvg-convert -w 180 icon.svg -o apple-touch-icon.png（icon-192、icon-512 同理）。
+     满版不留透明边：iOS 自己切圆角；图形落在中间 80% 的圆内，可兼作 maskable -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#171717"/>
+  <path d="M150 180 L230 256 L150 332" fill="none" stroke="#d97757" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M266 332 H362" stroke="#e5e5e5" stroke-width="44" stroke-linecap="round"/>
+</svg>
