@@ -31,7 +31,7 @@
 
 ### 环境要求 / Requirements
 
-- macOS（服务端）+ 已登录的 [Claude Code](https://code.claude.com)（`claude` CLI 能正常用）
+- macOS（服务端，暂只支持 macOS：Tailscale 取地址、防睡眠、常驻、终端旁观都有 macOS 专属实现）+ 已登录的 [Claude Code](https://code.claude.com)（`claude` CLI 能正常用）
 - [Bun](https://bun.sh) ≥ 1.3
 - [Tailscale](https://tailscale.com)（手机与 Mac 在同一 tailnet，服务端默认只监听 100.x 地址）
 - 手机浏览器（iOS Safari / Android Chrome，用于安装 PWA；推送需 Bark 或 ntfy App）
