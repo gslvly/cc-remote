@@ -7,10 +7,16 @@ import { StateDot } from './StateBadge'
 /**
  * 会话页顶部：全部会话的标签（可横滑，带状态点；终端里的会话是 ▣，只读），最右 [+] 回首页选目录新建。
  * 当前标签带 ×；终端里正跑着的归终端管，没有
+ * 历史会话（直接打开、还没托管）不在概览流里，找不到当前 id 就用 currentInfo 补一个，不然标签条是空的
  */
-export function TabBar(props: { current: string; sessions: readonly SessionInfo[]; onClose: () => unknown }) {
+export function TabBar(props: { current: string; sessions: readonly SessionInfo[]; currentInfo?: SessionInfo | null; onClose: () => unknown }) {
   // 按创建先后排，标签位置不随活动跳来跳去
-  const tabs = createMemo(() => [...props.sessions].sort((a, b) => a.createdAt - b.createdAt))
+  const tabs = createMemo(() => {
+    const list = [...props.sessions]
+    const info = props.currentInfo
+    if (info && !list.some((s) => s.id === props.current)) list.push(info)
+    return list.sort((a, b) => a.createdAt - b.createdAt)
+  })
   let strip: HTMLDivElement | undefined
 
   // 当前标签滚到可见处（从别的标签、横幅跳过来时，它可能在屏幕外）
@@ -36,7 +42,7 @@ export function TabBar(props: { current: string; sessions: readonly SessionInfo[
                   class={`flex items-center gap-1.5 py-1.5 pl-3 ${closable() ? 'pr-1' : 'pr-3'}`}
                 >
                   <StateDot state={s.state} terminal={s.terminal} />
-                  <span class="max-w-32 truncate">{sessionLabel(s, props.sessions)}</span>
+                  <span class="max-w-32 truncate">{sessionLabel(s, tabs())}</span>
                 </button>
                 <Show when={closable()}>
                   <button

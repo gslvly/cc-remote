@@ -44,16 +44,21 @@ export function SessionPage(props: { id: string }) {
   }
 
   // 关掉会话回首页；Claude 正在干活的先确认
+  // 历史会话没进概览流、也没子进程：服务端的 dismiss 是 no-op，直接回首页
   const close = async () => {
     const st = s.info()?.state
     const busy = st === 'starting' || st === 'running' || st === 'requires_action'
     if (busy && !confirm('Claude 正在运行，关闭会中断。确定关闭？')) return
-    try {
-      await s.actions.close()
-      go.home()
-    } catch (e) {
-      alert(errorText(e))
+    const listed = all.some((x) => x.id === props.id)
+    if (listed || s.info()?.live || s.info()?.terminal) {
+      try {
+        await s.actions.close()
+      } catch (e) {
+        alert(errorText(e))
+        return
+      }
     }
+    go.home()
   }
 
   // Todo / Task 工具不进消息流，生成参数时也不显示
@@ -75,7 +80,7 @@ export function SessionPage(props: { id: string }) {
       }
     >
       <div class="mx-auto flex h-dvh max-w-2xl flex-col">
-        <TabBar current={props.id} sessions={all} onClose={close} />
+        <TabBar current={props.id} sessions={all} currentInfo={s.info()} onClose={close} />
         <header class="flex items-center gap-2 border-b border-neutral-800 px-4 py-2">
           <div class="min-w-0 flex-1">
             <h1 class="truncate text-sm font-medium">{s.info()?.title ?? '…'}</h1>
