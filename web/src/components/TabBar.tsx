@@ -57,6 +57,13 @@ export function TabBar(props: { current: string; sessions: readonly SessionInfo[
             )
           }}
         </For>
+        <Show when={!tabs().length}>
+          <div aria-hidden="true" class="invisible flex shrink-0 items-center rounded-full text-sm">
+            <span class="flex items-center gap-1.5 px-3 py-1.5">
+              <span class="truncate">会话</span>
+            </span>
+          </div>
+        </Show>
       </div>
       <button
         onClick={go.home}

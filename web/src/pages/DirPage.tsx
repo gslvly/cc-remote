@@ -67,11 +67,11 @@ export function DirPage(props: { path: string }) {
         </button>
         <div class="min-w-0 flex-1">
           <h1 class="truncate font-semibold">{basename(props.path)}</h1>
-          <p class="truncate text-xs text-neutral-500">
-            {shortPath(props.path, 4)}
-            <Show when={dir()?.branch}>
-              <span class="ml-2 font-mono">⎇ {dir()!.branch}</span>
-            </Show>
+          <p class="flex min-h-4 items-center gap-2 truncate text-xs text-neutral-500">
+            <span class="truncate">{shortPath(props.path, 4)}</span>
+            <span class={`shrink-0 truncate font-mono ${dir()?.branch ? '' : 'invisible'}`} aria-hidden={!dir()?.branch}>
+              ⎇ {dir()?.branch ?? '···'}
+            </span>
           </p>
         </div>
         <button
@@ -79,7 +79,7 @@ export function DirPage(props: { path: string }) {
           disabled={!dir()}
           aria-label={dir()?.favorite ? '取消收藏' : '收藏'}
           aria-pressed={dir()?.favorite ?? false}
-          class={`-mr-1 px-1 text-2xl leading-none disabled:opacity-30 ${dir()?.favorite ? 'text-amber-400' : 'text-neutral-500'}`}
+          class={`-mr-1 h-8 w-8 shrink-0 text-2xl leading-none disabled:opacity-30 ${dir()?.favorite ? 'text-amber-400' : 'text-neutral-500'}`}
         >
           {dir()?.favorite ? '★' : '☆'}
         </button>

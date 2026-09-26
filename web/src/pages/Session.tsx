@@ -91,7 +91,26 @@ export function SessionPage(props: { id: string }) {
             {(i) => <StateBadge state={i().state} terminal={i().terminal} />}
           </Show>
         </header>
-        <Show when={s.info()}>{(i) => <StatusLine info={i()} quota={quota()} />}</Show>
+        <Show
+          when={s.info()}
+          fallback={
+            <div
+              aria-hidden="true"
+              class="invisible grid grid-cols-4 gap-x-2 border-b border-neutral-800 px-4 py-1 text-[11px] tabular-nums"
+            >
+              <For each={['上下文 --', '缓存 --', '5h', '7d']}>
+                {(t) => (
+                  <div class="flex min-w-0 flex-col whitespace-nowrap">
+                    <span>{t}</span>
+                    <span class="text-[10px] leading-3"> </span>
+                  </div>
+                )}
+              </For>
+            </div>
+          }
+        >
+          {(i) => <StatusLine info={i()} quota={quota()} />}
+        </Show>
         <ApprovalBanner current={props.id} sessions={all} />
         <TodoBar todos={view.todos} />
 

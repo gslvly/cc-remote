@@ -84,7 +84,7 @@ export function Home() {
           </For>
         </div>
 
-        <Switch>
+        <Switch fallback={<p class="text-sm text-neutral-500">加载中…</p>}>
           <Match when={current() === 'recent'}>
             <Listing of={recent} empty="还没有用过 Claude Code 的目录">
               {(d) => (
