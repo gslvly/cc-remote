@@ -45,6 +45,13 @@ interface Run {
 /** 登记表里终端进程的 status → 会话状态。waiting 是终端在等人操作（审批、回答），手机上只能看 */
 const TERMINAL_STATE: Record<string, SessionState> = { busy: 'running', shell: 'running', waiting: 'requires_action', idle: 'idle' }
 
+/**
+ * 没选模式时交给 CLI 按配置定。SDK 不传 permissionMode 会自己补 `--permission-mode default`，
+ * 而 CLI 里命令行参数排在配置的 defaultMode 前面，于是 bypassPermissions 永远不生效。
+ * resolvePermissionModeInCli 是 SDK 没写进类型的选项（sdk.mjs 里 `permissionMode ?? (resolvePermissionModeInCli ? undefined : 'default')`）
+ */
+const CLI_DECIDES_MODE: {} = { resolvePermissionModeInCli: true }
+
 /** 终端还占着这个会话，或者终端退出后还没接管 */
 export class ConflictError extends Error {}
 
@@ -325,8 +332,10 @@ export class Session {
         env: childEnv(),
         // 不传时 SDK 发的是空系统提示词，与终端不一致
         systemPrompt: { type: 'preset', preset: 'claude_code' },
-        // 手机上选过、切过的模式；子进程回收后 resume 也接着用。没有就由 Claude Code 自己定
-        ...(this.permissionMode && { permissionMode: this.permissionMode }),
+        // 手机上选过、切过的模式；子进程回收后 resume 也接着用。没有就由 CLI 按配置里的 defaultMode 定
+        ...(this.permissionMode ? { permissionMode: this.permissionMode } : CLI_DECIDES_MODE),
+        // 不带的话配置里的 defaultMode: bypassPermissions 会被 CLI 忽略、退回 default
+        allowDangerouslySkipPermissions: true,
         // 逐字蹦出：增量由 LiveTracker 合并，不进缓冲
         includePartialMessages: true,
         canUseTool: this.canUseTool,

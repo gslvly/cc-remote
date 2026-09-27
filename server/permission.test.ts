@@ -65,11 +65,13 @@ describe('Session 的审批与权限模式', () => {
     expect(s.decide('req1', { behavior: 'allow' })).toBe(false)
   })
 
-  test('没选模式就不传，由 Claude Code 自己定', async () => {
+  test('没选模式就不传，并让 SDK 别补 default，由 CLI 按配置定', async () => {
     const s = fresh()
     s.send('one')
     await idle(s)
-    expect(spawned.at(-1)!.options.permissionMode).toBeUndefined()
+    const { options } = spawned.at(-1)!
+    expect(options.permissionMode).toBeUndefined()
+    expect(options).toMatchObject({ resolvePermissionModeInCli: true, allowDangerouslySkipPermissions: true })
   })
 
   test('新建时选的模式带给子进程；中途切的调 setPermissionMode；回收后 resume 接着用', async () => {

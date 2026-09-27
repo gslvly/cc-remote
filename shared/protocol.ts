@@ -5,7 +5,7 @@ export type { PermissionMode, PermissionUpdate, SDKMessage }
 
 /**
  * 手机上能切的权限模式（终端 Shift+Tab 轮换的那几个）。auto 要看开关，不提供；
- * bypassPermissions 要启动时带 allowDangerouslySkipPermissions，不提供（见 REFERENCE.md）
+ * bypassPermissions 只跟随配置里的 defaultMode（启动时带了 allowDangerouslySkipPermissions），手机上不提供切入
  */
 export type SwitchableMode = Extract<PermissionMode, 'default' | 'acceptEdits' | 'plan'>
 
