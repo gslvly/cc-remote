@@ -1,4 +1,4 @@
-import { createEffect, For, on, onCleanup, Show } from 'solid-js'
+import { createEffect, createSignal, For, on, onCleanup, Show } from 'solid-js'
 import { Composer } from '../components/Composer'
 import { ItemView, LiveView } from '../components/ItemView'
 import { PermissionSheet, type SheetProps } from '../components/PermissionSheet'
@@ -24,6 +24,17 @@ export function SessionPage(props: { id: string }) {
   const { view } = s
   let scroller: HTMLDivElement | undefined
   let stick = true
+
+  // 切页、回前台都会重连，一般一两百毫秒：这期间照旧显示缓存的状态，断开超过 1 秒才换成「连接中…」
+  const [slow, setSlow] = createSignal(false)
+  createEffect(() => {
+    if (s.conn() === 'open') {
+      setSlow(false)
+      return
+    }
+    const t = setTimeout(() => setSlow(true), 1000)
+    onCleanup(() => clearTimeout(t))
+  })
 
   // 在底部附近时跟随新内容（包括正在蹦的字）；用户往上翻了就不打扰。切回缓存里的会话时也从底部开始
   createEffect(
@@ -85,9 +96,12 @@ export function SessionPage(props: { id: string }) {
           <div class="min-w-0 flex-1">
             <h1 class="truncate text-sm font-medium">{s.info()?.title ?? '…'}</h1>
             {/* 目录 · 模型 · 上下文上限 · effort；权限模式在输入框左边 */}
-            <p class="truncate text-xs text-neutral-500">{s.info() ? [basename(s.info()!.cwd), modelLabel(s.info()!)].filter(Boolean).join(' · ') : ''}</p>
+            <p class="min-h-4 truncate text-xs text-neutral-500">{s.info() ? [basename(s.info()!.cwd), modelLabel(s.info()!)].filter(Boolean).join(' · ') : ''}</p>
           </div>
-          <Show when={s.conn() === 'open' && s.info()} fallback={<span class="text-xs text-neutral-500">连接中…</span>}>
+          <Show
+            when={!slow() && s.info()}
+            fallback={<span class={`text-xs text-neutral-500 ${slow() ? '' : 'invisible'}`}>连接中…</span>}
+          >
             {(i) => <StateBadge state={i().state} terminal={i().terminal} />}
           </Show>
         </header>
@@ -102,7 +116,7 @@ export function SessionPage(props: { id: string }) {
                 {(t) => (
                   <div class="flex min-w-0 flex-col whitespace-nowrap">
                     <span>{t}</span>
-                    <span class="text-[10px] leading-3"> </span>
+                    <span class="text-[10px] leading-3">{' '}</span>
                   </div>
                 )}
               </For>

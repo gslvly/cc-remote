@@ -1,6 +1,6 @@
-import { createMemo, createResource, createSignal, For, type JSX, Match, type Resource, Show, Switch } from 'solid-js'
+import { createMemo, createSignal, For, type JSX, Match, type Resource, Show, Switch } from 'solid-js'
 import type { DirEntry, RecentDir } from '../../../shared/protocol'
-import { api } from '../api'
+import { cachedResource } from '../api'
 import { DirBrowser } from '../components/DirBrowser'
 import { StateBadge } from '../components/StateBadge'
 import { QuotaText } from '../components/StatusLine'
@@ -20,16 +20,19 @@ const TAB_KEY = 'ccr-home-tab'
 export function Home() {
   const live = useOverview()
   const quota = useQuota()
-  const [recent] = createResource(() => api<RecentDir[]>('/recent'))
-  const [favs] = createResource(() => api<DirEntry[]>('/favorites'))
+  const [recent] = cachedResource<RecentDir[]>('/recent')
+  const [favs] = cachedResource<DirEntry[]>('/favorites')
   const [tab, setTab] = createSignal(sessionStorage.getItem(TAB_KEY) as Tab | null)
 
-  const favSet = createMemo(() => new Set(favs.state === 'ready' ? favs().map((f) => f.path) : []))
+  // 后台刷新期间仍是上次的列表；出错时读 favs() 会抛
+  const favList = () => (favs.error ? undefined : favs())
+  const favSet = createMemo(() => new Set(favList()?.map((f) => f.path)))
   const current = (): Tab | null => {
     const t = tab()
     if (t) return t
-    if (favs.state === 'ready') return favs().length ? 'fav' : 'recent'
-    return favs.state === 'errored' ? 'recent' : null
+    const f = favList()
+    if (f) return f.length ? 'fav' : 'recent'
+    return favs.error ? 'recent' : null
   }
   const pick = (t: Tab) => {
     sessionStorage.setItem(TAB_KEY, t)

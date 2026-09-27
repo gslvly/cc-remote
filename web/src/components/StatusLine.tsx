@@ -17,7 +17,8 @@ function Metric(props: { label: string; value: string; tone?: string; sub?: stri
         <span class="text-neutral-500">{props.label} </span>
         <span class={props.tone || 'text-neutral-300'}>{props.value}</span>
       </span>
-      <span class={`text-[10px] leading-3 ${props.subTone || 'text-neutral-500'}`}>{props.sub ?? ' '}</span>
+      {/* 没有 k 数、倒计时时也占住一行（普通空格会塌成 0 高），状态栏高度不随数据到没到变 */}
+      <span class={`text-[10px] leading-3 ${props.subTone || 'text-neutral-500'}`}>{props.sub ?? ' '}</span>
     </div>
   )
 }

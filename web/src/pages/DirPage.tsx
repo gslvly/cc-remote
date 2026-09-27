@@ -1,4 +1,4 @@
-import { createMemo, createResource, createSignal, For, onMount, Show } from 'solid-js'
+import { createMemo, createSignal, For, onMount, Show } from 'solid-js'
 import type {
   CreateSessionBody,
   DirInfo,
@@ -8,7 +8,7 @@ import type {
   SessionInfo,
   SwitchableMode,
 } from '../../../shared/protocol'
-import { api } from '../api'
+import { api, cachedResource } from '../api'
 import { ModeSelect } from '../components/ModeSelect'
 import { StateBadge } from '../components/StateBadge'
 import { ago, basename, errorText, shortPath } from '../format'
@@ -18,7 +18,7 @@ import { go } from '../router'
 /** 目录页：在这个目录开新会话，或者打开它的历史会话（终端里开的也在） */
 export function DirPage(props: { path: string }) {
   // 目录不存在、不在 roots 内时这里就报错，不用等到点开始
-  const [info, { mutate }] = createResource(() => api<DirInfo>(`/dir?path=${encodeURIComponent(props.path)}`))
+  const [info, { mutate }] = cachedResource<DirInfo>(`/dir?path=${encodeURIComponent(props.path)}`)
   const dir = () => (info.error ? undefined : info())
   const [prompt, setPrompt] = createSignal('')
   /** 不选就不传，由 Claude Code 自己定 */
@@ -110,23 +110,34 @@ export function DirPage(props: { path: string }) {
   )
 }
 
+/** 各目录历史会话的第一页：再进来先显示上次的，同时重新取 */
+const firstPages = new Map<string, DirSessions>()
+
 /** 该目录的历史会话，一页 30 个。正在跑的（托管的、终端里的）从概览流里取状态 */
 function History(props: { path: string; branch?: string }) {
   const all = useOverview()
   const byId = createMemo(() => new Map(all.map((s) => [s.id, s])))
-  const [list, setList] = createSignal<DirSession[]>([])
-  const [more, setMore] = createSignal(false)
-  const [loading, setLoading] = createSignal(false)
+  const cached = firstPages.get(props.path)
+  const [list, setList] = createSignal<DirSession[]>(cached?.sessions ?? [])
+  const [more, setMore] = createSignal(cached?.more ?? false)
+  /** fresh：重新取第一页（替换先显示着的缓存）；more：翻下一页 */
+  const [loading, setLoading] = createSignal<false | 'fresh' | 'more'>(false)
   const [error, setError] = createSignal('')
 
-  const load = async () => {
-    setLoading(true)
+  const load = async (kind: 'fresh' | 'more') => {
+    setLoading(kind)
     setError('')
     try {
-      const page = await api<DirSessions>(`/dir/sessions?path=${encodeURIComponent(props.path)}&offset=${list().length}`)
-      // 翻页期间有新会话时 offset 会错开，按 id 去重
-      const seen = new Set(list().map((d) => d.id))
-      setList([...list(), ...page.sessions.filter((d) => !seen.has(d.id))])
+      const offset = kind === 'fresh' ? 0 : list().length
+      const page = await api<DirSessions>(`/dir/sessions?path=${encodeURIComponent(props.path)}&offset=${offset}`)
+      if (kind === 'fresh') {
+        firstPages.set(props.path, page)
+        setList(page.sessions)
+      } else {
+        // 翻页期间有新会话时 offset 会错开，按 id 去重
+        const seen = new Set(list().map((d) => d.id))
+        setList([...list(), ...page.sessions.filter((d) => !seen.has(d.id))])
+      }
       setMore(page.more)
     } catch (e) {
       setError(errorText(e))
@@ -134,7 +145,7 @@ function History(props: { path: string; branch?: string }) {
       setLoading(false)
     }
   }
-  void load()
+  void load('fresh')
 
   return (
     <section class="mt-2">
@@ -170,14 +181,15 @@ function History(props: { path: string; branch?: string }) {
       <Show when={error()}>
         <p class="text-sm text-red-400">{error()}</p>
       </Show>
-      <Show when={loading()}>
+      {/* 有缓存的列表先显示着，后台刷新时不出「加载中」 */}
+      <Show when={loading() === 'more' || (loading() && !list().length)}>
         <p class="py-2 text-sm text-neutral-500">加载中…</p>
       </Show>
       <Show when={!loading() && !error() && !list().length}>
         <p class="text-sm text-neutral-500">这个目录还没有会话</p>
       </Show>
       <Show when={more() && !loading()}>
-        <button onClick={() => void load()} class="mt-2 block w-full py-2 text-center text-sm text-neutral-400">
+        <button onClick={() => void load('more')} class="mt-2 block w-full py-2 text-center text-sm text-neutral-400">
           更多
         </button>
       </Show>
