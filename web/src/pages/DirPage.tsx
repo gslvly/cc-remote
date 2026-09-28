@@ -12,6 +12,7 @@ import { api, cachedResource } from '../api'
 import { ModeSelect } from '../components/ModeSelect'
 import { StateBadge } from '../components/StateBadge'
 import { ago, basename, errorText, shortPath } from '../format'
+import { afterPaint } from '../frame'
 import { useOverview } from '../overview'
 import { go } from '../router'
 
@@ -27,7 +28,8 @@ export function DirPage(props: { path: string }) {
   const [busy, setBusy] = createSignal(false)
   let input!: HTMLTextAreaElement
 
-  onMount(() => input.focus())
+  // focus 会带出滚动，等整页画出来再做，见 afterPaint
+  onMount(() => afterPaint(() => input.focus()))
 
   const toggleFavorite = async () => {
     const d = dir()

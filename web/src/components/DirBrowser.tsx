@@ -2,6 +2,7 @@ import { createEffect, createMemo, createResource, createSignal, For, on, Show }
 import type { FsList } from '../../../shared/protocol'
 import { api } from '../api'
 import { basename, crumbs, errorText, rootLabel } from '../format'
+import { afterPaint } from '../frame'
 import { go } from '../router'
 
 // 上次浏览到的目录、是否显示隐藏目录，下次打开接着用
@@ -41,11 +42,11 @@ export function DirBrowser(props: { favorites: Set<string> }) {
     }
   })
 
-  // 路径长时面包屑横向滚到最右，露出当前目录
+  // 路径长时面包屑横向滚到最右，露出当前目录。等新目录画出来再滚，见 afterPaint
   createEffect(
     on(
       () => list()?.path,
-      () => nav && (nav.scrollLeft = nav.scrollWidth),
+      () => afterPaint(() => nav && (nav.scrollLeft = nav.scrollWidth)),
     ),
   )
 

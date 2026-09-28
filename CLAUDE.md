@@ -13,6 +13,10 @@
 - 看接口返回用 api-curl skill（`bun scripts/api.ts <路径>`，token 自动带），不手写 curl。
 - 核对页面用 harness 的 `text()`、`events()`，少读截图；`bun run dev` 的页面开着时用 ai-bridge skill 读运行时状态。
 
+## 前端约定
+
+- 换路由只用 `web/src/router.ts` 的 `go.*`，别直接改 `location.hash`（iOS 主屏 web app 会闪白，见该文件注释）。
+
 ## 工作方式
 
 - 读代码用 codegraph 按需取，不整文件 cat。

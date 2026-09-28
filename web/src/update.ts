@@ -22,6 +22,7 @@ export function checkBuild(res: Response) {
   // 为这个构建号刷新过、却还是旧页面（比如被缓存挡住），就别再自动刷新，免得死循环
   if (hasDraft() || sessionStorage.getItem(RELOADED_FOR) === server) return setStale(true)
   sessionStorage.setItem(RELOADED_FOR, server)
+  
   location.reload()
 }
 

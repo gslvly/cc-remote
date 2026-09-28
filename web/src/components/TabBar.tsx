@@ -1,11 +1,12 @@
 import { createMemo, For, onMount, Show } from 'solid-js'
 import type { SessionInfo } from '../../../shared/protocol'
+import { afterPaint } from '../frame'
 import { sessionLabel } from '../overview'
 import { go } from '../router'
 import { StateDot } from './StateBadge'
 
 /**
- * 会话页顶部：全部会话的标签（可横滑，带状态点；终端里的会话是 ▣，只读），最右 [+] 回首页选目录新建。
+ * 会话页顶部：最左 ‹ 返回上一页，中间全部会话的标签（可横滑，带状态点；终端里的会话是 ▣，只读），最右 [+] 回首页选目录新建。
  * 当前标签带 ×；终端里正跑着的归终端管，没有
  * 历史会话（直接打开、还没托管）不在概览流里，找不到当前 id 就用 currentInfo 补一个，不然标签条是空的
  */
@@ -19,11 +20,20 @@ export function TabBar(props: { current: string; sessions: readonly SessionInfo[
   })
   let strip: HTMLDivElement | undefined
 
-  // 当前标签滚到可见处（从别的标签、横幅跳过来时，它可能在屏幕外）
-  onMount(() => strip?.querySelector('[aria-current="page"]')?.scrollIntoView({ inline: 'nearest', block: 'nearest' }))
+  // 当前标签滚到可见处（从别的标签、横幅跳过来时，它可能在屏幕外）。等整页画出来再滚，见 afterPaint
+  onMount(() =>
+    afterPaint(() => strip?.querySelector('[aria-current="page"]')?.scrollIntoView({ inline: 'nearest', block: 'nearest' })),
+  )
 
   return (
     <nav class="flex items-center border-b border-neutral-800 pt-[env(safe-area-inset-top)]">
+      <button
+        onClick={go.back}
+        aria-label="返回"
+        class="shrink-0 self-stretch pr-1 pl-4 text-2xl leading-none text-neutral-400"
+      >
+        ‹
+      </button>
       <div ref={strip} class="flex min-w-0 flex-1 gap-1 overflow-x-auto px-2 py-1.5 [scrollbar-width:none]">
         <For each={tabs()}>
           {(s) => {

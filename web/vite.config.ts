@@ -4,7 +4,7 @@ import { join } from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, type Plugin } from "vite";
 import solid from "vite-plugin-solid";
-import { aiBridge } from "./plugins/vite-plugin-ai-bridge";
+import { aiBridge } from "./plugins/vite-plugin-ai-bridge/index.ts";
 
 // 开发时把 /api 转给本机服务端，端口与 ~/.cc-remote/config.json 一致
 function serverPort(): number {

@@ -1,4 +1,5 @@
 import { createEffect, createResource, type ResourceReturn } from 'solid-js'
+import { go } from './router'
 import { checkBuild } from './update'
 
 export class ApiError extends Error {
@@ -18,7 +19,7 @@ export async function api<T = unknown>(path: string, body?: unknown): Promise<T>
   })
   checkBuild(res)
   if (res.status === 401 && path !== '/login') {
-    location.hash = '#/login'
+    go.login()
     throw new ApiError(401, '需要登录')
   }
   const data = await res.json().catch(() => ({}))

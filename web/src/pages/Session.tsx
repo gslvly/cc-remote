@@ -10,6 +10,7 @@ import { ApprovalBanner, TabBar } from '../components/TabBar'
 import { TerminalBar } from '../components/TerminalBar'
 import { TodoBar } from '../components/TodoBar'
 import { basename, errorText } from '../format'
+import { afterPaint } from '../frame'
 import { useOverview, useQuota } from '../overview'
 import { go } from '../router'
 import { openSession } from '../session/store'
@@ -36,22 +37,34 @@ export function SessionPage(props: { id: string }) {
     onCleanup(() => clearTimeout(t))
   })
 
-  // 在底部附近时跟随新内容（包括正在蹦的字）；用户往上翻了就不打扰。切回缓存里的会话时也从底部开始
+  // 在底部附近时跟随新内容（包括正在蹦的字）；用户往上翻了就不打扰。切回缓存里的会话时也从底部开始。
+  // 等新内容画出来再滚（见 afterPaint），排着的滚动一次就够。离底部超过一屏（刚进来、历史刚到）先藏起消息区，
+  // 不然会露一帧对话开头；滚完的下一帧再露出来，露出和滚动也不挤在同一帧
+  const [hidden, setHidden] = createSignal(false)
+  let following = false
   createEffect(
-    on(
-      [() => view.lastSeq, s.live],
-      () => {
-        if (scroller && stick) scroller.scrollTop = scroller.scrollHeight
-      },
-    ),
+    on([() => view.lastSeq, s.live], () => {
+      const el = scroller
+      if (!el || !stick) return
+      if (el.scrollHeight - el.scrollTop - el.clientHeight > el.clientHeight) setHidden(true)
+      if (following) return
+      following = true
+      afterPaint(() => {
+        following = false
+        if (stick) el.scrollTop = el.scrollHeight
+        requestAnimationFrame(() => setHidden(false))
+      })
+    }),
   )
 
-  // 往前补一页：内容加在上面，保持离底部的距离不变，眼前的消息不跳
+  // 往前补一页：内容加在上面，保持离底部的距离不变，眼前的消息不跳。
+  // 浏览器的滚动锚定（Safari 27 起也有）多半已经保持住了，没保持住才自己滚，少一次同帧滚动
   const loadOlder = async () => {
     if (!scroller) return
     const fromBottom = scroller.scrollHeight - scroller.scrollTop
     await s.loadOlder()
-    scroller.scrollTop = scroller.scrollHeight - fromBottom
+    const top = scroller.scrollHeight - fromBottom
+    if (Math.abs(scroller.scrollTop - top) > 1) scroller.scrollTop = top
   }
 
   // 关掉会话回首页；Claude 正在干活的先确认
@@ -116,7 +129,7 @@ export function SessionPage(props: { id: string }) {
                 {(t) => (
                   <div class="flex min-w-0 flex-col whitespace-nowrap">
                     <span>{t}</span>
-                    <span class="text-[10px] leading-3">{' '}</span>
+                    <span class="text-[10px] leading-3">{' '}</span>
                   </div>
                 )}
               </For>
@@ -135,7 +148,7 @@ export function SessionPage(props: { id: string }) {
             stick = el.scrollHeight - el.scrollTop - el.clientHeight < 80
             if (el.scrollTop < 300 && s.more() && !s.loadingOlder()) void loadOlder()
           }}
-          class="flex-1 space-y-3 overflow-y-auto px-4 py-4"
+          class={`flex-1 space-y-3 overflow-y-auto px-4 py-4 ${hidden() ? 'invisible' : ''}`}
         >
           <Show when={s.more()}>
             <button
