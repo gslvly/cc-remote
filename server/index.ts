@@ -18,7 +18,7 @@ import type {
   SwitchableMode,
 } from '../shared/protocol'
 import { createAuth } from './auth'
-import { CONFIG_FILE, loadConfig, resolveRoots, waitForHost } from './config'
+import { CONFIG_FILE, loadConfig, localIPv4s, resolveRoots, waitForHost } from './config'
 import { Favorites } from './favorites'
 import { checkDir, dirEntry, gitBranch, listDirs, within } from './fs'
 import { LimitError, SessionManager } from './manager'
@@ -350,10 +350,14 @@ const server = Bun.serve({
   idleTimeout: 255,
 })
 
-console.log(`[cc-remote] 监听 http://${hostname}:${server.port}`)
+const anyHost = hostname === '0.0.0.0'
+const urls = (anyHost ? localIPv4s() : [hostname]).map((ip) => `http://${ip}:${server.port}`)
+console.log(`[cc-remote] 监听${anyHost ? '所有网卡' : ''} ${urls.join('、') || `http://127.0.0.1:${server.port}`}`)
+if (anyHost) console.log('[cc-remote] 同一局域网 / 组网里的设备都能打开登录页，token 别外泄；只想在某个网卡上听，就把 host 写成它的 IP')
 console.log(`[cc-remote] roots：${roots.join('、') || '（无）'}`)
 console.log(`[cc-remote] 并发上限 ${config.maxLive}，空闲 ${config.idleMinutes} 分钟回收子进程`)
-const publicUrl = config.publicUrl || `http://${hostname}:${server.port}`
+// 听所有网卡时取第一个网卡地址，不对就在配置里写 publicUrl
+const publicUrl = config.publicUrl || urls[0] || `http://127.0.0.1:${server.port}`
 pusher.configure(config.push, publicUrl)
 const targets = Object.keys(config.push ?? {})
 console.log(`[cc-remote] 推送：${targets.length ? `${targets.join('、')}，深链接 ${publicUrl}/#/s/<id>` : '没配'}`)

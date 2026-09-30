@@ -5,7 +5,7 @@ import { isAbsolute, join } from 'node:path'
 
 export interface Config {
   token: string
-  /** "tailscale" = 自动取本机 100.x 地址；也可以直接写 IP */
+  /** "0.0.0.0" = 所有网卡（默认）；写某个网卡的 IP 就只在它上面听；"tailscale" = 自动取 Tailscale 的 100.x 地址，没连上就等 */
   host: string
   port: number
   /** 允许浏览、开会话的目录（含子目录），可以用 ~ 开头 */
@@ -32,7 +32,7 @@ export const CONFIG_FILE = join(CONFIG_DIR, 'config.json')
 /** Claude Code 的数据目录（登记表、transcript），与 CLI 一样认 CLAUDE_CONFIG_DIR */
 export const CLAUDE_DIR = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude')
 
-const DEFAULTS: Omit<Config, 'token'> = { host: 'tailscale', port: 8686, roots: ['~'], maxLive: 6, idleMinutes: 30 }
+const DEFAULTS: Omit<Config, 'token'> = { host: '0.0.0.0', port: 8686, roots: ['~'], maxLive: 6, idleMinutes: 30 }
 
 export function loadConfig(): { config: Config; created: boolean } {
   let saved: Partial<Config> = {}
@@ -74,6 +74,15 @@ export function tailscaleIPv4(interfaces = networkInterfaces()): string | undefi
   }
 }
 
+/** 听所有网卡时，手机可能用来访问的地址：非回环的 IPv4，169.254 链路本地地址也跳过 */
+export function localIPv4s(interfaces = networkInterfaces()): string[] {
+  return Object.values(interfaces).flatMap((addrs) =>
+    (addrs ?? [])
+      .filter((a) => a.family === 'IPv4' && !a.internal && !a.address.startsWith('169.254.'))
+      .map((a) => a.address),
+  )
+}
+
 /** 监听地址。"tailscale" 时取本机 100.x 地址，tailscale 还没连上就是 undefined */
 export function resolveHost(host: string, find = tailscaleIPv4): string | undefined {
   return host === 'tailscale' ? find() : host
@@ -91,7 +100,7 @@ export async function waitForHost(host: string, find = tailscaleIPv4, intervalMs
       if (waited) console.log(`[config] tailscale 连上了：${ip}`)
       return ip
     }
-    if (!waited) console.warn('[config] 还没有 tailscale 地址（100.64.0.0/10），等它连上。只在本机用就把 host 写成 127.0.0.1，或设 CCR_HOST=127.0.0.1')
+    if (!waited) console.warn('[config] host 写的是 tailscale，但还没有 Tailscale 地址（100.64.0.0/10），等它连上。不用 Tailscale 就把 host 改成 0.0.0.0 或具体 IP，或设 CCR_HOST')
     waited = true
     await Bun.sleep(intervalMs)
   }

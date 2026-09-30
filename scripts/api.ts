@@ -59,7 +59,7 @@ const url = (host: string) => `http://${host}:${o.port}/api${arg}${params.size ?
 const headers: Record<string, string> = { Authorization: `Bearer ${config.token}` }
 if (body !== undefined) headers['Content-Type'] = 'application/json'
 
-/** dev 和 e2e 的服务端听 127.0.0.1，bun start 听 config 里的 host（默认 tailscale 地址）：先试前者 */
+/** dev 和 e2e 的服务端听 127.0.0.1，bun start 听 config 里的 host（默认所有网卡）：先试前者 */
 async function request(init: RequestInit): Promise<Response> {
   try {
     return await fetch(url('127.0.0.1'), init)

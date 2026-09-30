@@ -1,9 +1,14 @@
-// tailscale 地址的识别、开机时等它连上
+// 监听地址：所有网卡时列出可访问的地址；host 写 tailscale 时的识别、开机时等它连上
 import { describe, expect, test } from 'bun:test'
 import type { NetworkInterfaceInfo } from 'node:os'
-import { tailscaleIPv4, waitForHost } from './config'
+import { localIPv4s, tailscaleIPv4, waitForHost } from './config'
 
-const v4 = (address: string): NetworkInterfaceInfo => ({ address, family: 'IPv4', netmask: '255.255.255.255', mac: '00:00:00:00:00:00', internal: false, cidr: null })
+const v4 = (address: string, internal = false): NetworkInterfaceInfo => ({ address, family: 'IPv4', netmask: '255.255.255.255', mac: '00:00:00:00:00:00', internal, cidr: null })
+
+test('所有网卡的地址：跳过回环、IPv6、链路本地', () => {
+  const v6: NetworkInterfaceInfo = { address: 'fe80::1', family: 'IPv6', netmask: 'ffff::', mac: '00:00:00:00:00:00', internal: false, cidr: null, scopeid: 0 }
+  expect(localIPv4s({ lo0: [v4('127.0.0.1', true)], en0: [v6, v4('192.168.1.8')], en5: [v4('169.254.105.30')], utun4: [v4('100.101.7.12')] })).toEqual(['192.168.1.8', '100.101.7.12'])
+})
 
 describe('tailscale 地址', () => {
   test('只认 tailscale 网卡上的 100.64.0.0/10', () => {

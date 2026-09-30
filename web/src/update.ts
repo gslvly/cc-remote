@@ -32,7 +32,7 @@ export function initUpdate() {
   if (import.meta.env.DEV) return
   let reg: ServiceWorkerRegistration | undefined
 
-  // SW 只在安全上下文（HTTPS 或 localhost）可用；http://100.x 访问时只靠构建号比对
+  // SW 只在安全上下文（HTTPS 或 localhost）可用；http://<IP> 访问时只靠构建号比对
   if ('serviceWorker' in navigator && isSecureContext) {
     navigator.serviceWorker.register('/sw.js').then(
       (r) => (reg = r),
