@@ -1,4 +1,4 @@
-import { createSignal, Show } from 'solid-js'
+import { createSignal, Show, untrack } from 'solid-js'
 import { shortPath } from '../format'
 import { Markdown } from './Markdown'
 import { type SheetProps, Sheet, SheetHead, primary, secondary, useDecide } from './PermissionSheet'
@@ -11,8 +11,10 @@ import { type SheetProps, Sheet, SheetHead, primary, secondary, useDecide } from
 export function PlanSheet(props: SheetProps) {
   const { busy, error, decide } = useDecide(props)
   const [feedback, setFeedback] = createSignal('')
-  const plan = typeof props.req.input.plan === 'string' ? props.req.input.plan : ''
-  const file = typeof props.req.input.planFilePath === 'string' ? props.req.input.planFilePath : ''
+  // 换请求时弹层整个重建（Session 里 keyed），只取一次
+  const input = untrack(() => props.req.input)
+  const plan = typeof input.plan === 'string' ? input.plan : ''
+  const file = typeof input.planFilePath === 'string' ? input.planFilePath : ''
 
   return (
     <Sheet>

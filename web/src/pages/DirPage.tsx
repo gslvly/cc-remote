@@ -1,4 +1,17 @@
-import { createMemo, createSignal, For, onMount, Show } from 'solid-js'
+import {
+  action,
+  createMemo,
+  createOptimistic,
+  createSignal,
+  Errored,
+  For,
+  isPending,
+  Loading,
+  onSettled,
+  refresh,
+  Show,
+  untrack,
+} from 'solid-js'
 import type {
   CreateSessionBody,
   DirInfo,
@@ -8,7 +21,7 @@ import type {
   SessionInfo,
   SwitchableMode,
 } from '../../../shared/protocol'
-import { api, cachedResource } from '../api'
+import { api, cachedGet } from '../api'
 import { ModeSelect } from '../components/ModeSelect'
 import { StateBadge } from '../components/StateBadge'
 import { ago, basename, errorText, shortPath } from '../format'
@@ -19,8 +32,9 @@ import { go } from '../router'
 /** 目录页：在这个目录开新会话，或者打开它的历史会话（终端里开的也在） */
 export function DirPage(props: { path: string }) {
   // 目录不存在、不在 roots 内时这里就报错，不用等到点开始
-  const [info, { mutate }] = cachedResource<DirInfo>(`/dir?path=${encodeURIComponent(props.path)}`)
-  const dir = () => (info.error ? undefined : info())
+  // 换目录时整页重建（App 里 keyed），path 只取一次
+  const info = cachedGet<DirInfo>(`/dir?path=${encodeURIComponent(untrack(() => props.path))}`)
+  const [favorite, setFavorite] = createOptimistic(() => info().favorite)
   const [prompt, setPrompt] = createSignal('')
   /** 不选就不传，由 Claude Code 自己定 */
   const [mode, setMode] = createSignal<SwitchableMode>()
@@ -29,28 +43,28 @@ export function DirPage(props: { path: string }) {
   let input!: HTMLTextAreaElement
 
   // focus 会带出滚动，等整页画出来再做，见 afterPaint
-  onMount(() => afterPaint(() => input.focus()))
+  onSettled(() => afterPaint(() => input.focus()))
 
-  const toggleFavorite = async () => {
-    const d = dir()
-    if (!d) return
-    const body: FavoriteBody = { path: d.path, favorite: !d.favorite }
-    mutate({ ...d, favorite: body.favorite })
+  // 先亮星再请求；失败时 action 结束，乐观值自动退回
+  const toggleFavorite = action(function* () {
+    const next = !favorite()
+    setFavorite(next)
+    setError('')
     try {
-      await api('/favorites', body)
+      yield api('/favorites', { path: info().path, favorite: next } satisfies FavoriteBody)
     } catch (e) {
-      mutate((i) => i && { ...i, favorite: !body.favorite })
       setError(errorText(e))
+      return
     }
-  }
+    // 等重取落地再结束 action，乐观值不会先退回再跳过来；缓存也随之更新
+    yield refresh(info)
+  })
 
   const start = async () => {
-    const d = dir()
-    if (!d) return
     setBusy(true)
     setError('')
     try {
-      const body: CreateSessionBody = { cwd: d.path, prompt: prompt(), permissionMode: mode() }
+      const body: CreateSessionBody = { cwd: info().path, prompt: prompt(), permissionMode: mode() }
       const s = await api<SessionInfo>('/sessions', body)
       go.session(s.id)
     } catch (e) {
@@ -59,56 +73,82 @@ export function DirPage(props: { path: string }) {
     }
   }
 
-  const shownError = () => error() || (info.error ? errorText(info.error) : '')
+  // 目录还没取到时画个禁用的占着位置
+  const startRow = (disabled: () => boolean) => (
+    <div class="flex gap-3">
+      <ModeSelect value={mode()} unset="模式：本机默认" unsetSelectable onChange={setMode} class="shrink-0" />
+      <button
+        onClick={start}
+        disabled={disabled()}
+        class="flex-1 rounded-xl bg-neutral-100 py-2.5 font-medium text-neutral-900 disabled:opacity-40"
+      >
+        {busy() ? '启动中…' : '开始'}
+      </button>
+    </div>
+  )
 
   return (
     <div class="mx-auto flex min-h-dvh max-w-2xl flex-col gap-4 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-      <header class="flex items-center gap-3">
-        <button onClick={go.home} class="-ml-1 px-1 text-2xl leading-none text-neutral-400">
-          ‹
-        </button>
-        <div class="min-w-0 flex-1">
-          <h1 class="truncate font-semibold">{basename(props.path)}</h1>
-          <p class="flex min-h-4 items-center gap-2 truncate text-xs text-neutral-500">
-            <span class="truncate">{shortPath(props.path, 4)}</span>
-            <span class={`shrink-0 truncate font-mono ${dir()?.branch ? '' : 'invisible'}`} aria-hidden={!dir()?.branch}>
-              ⎇ {dir()?.branch ?? '···'}
-            </span>
-          </p>
-        </div>
-        <button
-          onClick={toggleFavorite}
-          disabled={!dir()}
-          aria-label={dir()?.favorite ? '取消收藏' : '收藏'}
-          aria-pressed={dir()?.favorite ?? false}
-          class={`-mr-1 h-8 w-8 shrink-0 text-2xl leading-none disabled:opacity-30 ${dir()?.favorite ? 'text-amber-400' : 'text-neutral-500'}`}
-        >
-          {dir()?.favorite ? '★' : '☆'}
-        </button>
-      </header>
-      <textarea
-        ref={input}
-        value={prompt()}
-        onInput={(e) => setPrompt(e.currentTarget.value)}
-        placeholder="让 Claude 做什么？"
-        rows={4}
-        class="resize-none rounded-xl border border-neutral-700 bg-neutral-900 px-3 py-2.5 text-base outline-none focus:border-neutral-500"
-      />
-      <Show when={shownError()}>
-        <p class="text-sm text-red-400">{shownError()}</p>
-      </Show>
-      <div class="flex gap-3">
-        <ModeSelect value={mode()} unset="模式：本机默认" unsetSelectable onChange={setMode} class="shrink-0" />
-        <button
-          onClick={start}
-          disabled={!dir() || !prompt().trim() || busy()}
-          class="flex-1 rounded-xl bg-neutral-100 py-2.5 font-medium text-neutral-900 disabled:opacity-40"
-        >
-          {busy() ? '启动中…' : '开始'}
-        </button>
-      </div>
-      <History path={props.path} branch={dir()?.branch} />
+      {/* 目录不存在、不在 roots 内（「最近」里可能有 /tmp 这类） */}
+      <Errored
+        fallback={(err) => (
+          <>
+            <DirHeader path={props.path} />
+            <p class="text-sm text-red-400">{errorText(err())}</p>
+          </>
+        )}
+      >
+        <Loading fallback={<DirHeader path={props.path} />}>
+          <DirHeader path={props.path} branch={info().branch} favorite={favorite()} onFavorite={toggleFavorite} />
+        </Loading>
+        {/* 在 Loading 外：进来就能打字 */}
+        <textarea
+          ref={input}
+          value={prompt()}
+          onInput={(e) => setPrompt(e.currentTarget.value)}
+          placeholder="让 Claude 做什么？"
+          rows={4}
+          class="resize-none rounded-xl border border-neutral-700 bg-neutral-900 px-3 py-2.5 text-base outline-none focus:border-neutral-500"
+        />
+        <Show when={error()}>
+          <p class="text-sm text-red-400">{error()}</p>
+        </Show>
+        <Loading fallback={startRow(() => true)}>
+          {/* isPending 顺带读了 info：没取到时 Loading 等它 */}
+          {startRow(() => isPending(() => info()) || !prompt().trim() || busy())}
+          <History path={props.path} branch={info().branch} />
+        </Loading>
+      </Errored>
     </div>
+  )
+}
+
+/** 目录名、路径、分支、收藏星标。没 onFavorite（还没取到、打不开）时星标禁用，分支占位 */
+function DirHeader(props: { path: string; branch?: string; favorite?: boolean; onFavorite?: () => void }) {
+  return (
+    <header class="flex items-center gap-3">
+      <button onClick={go.home} class="-ml-1 px-1 text-2xl leading-none text-neutral-400">
+        ‹
+      </button>
+      <div class="min-w-0 flex-1">
+        <h1 class="truncate font-semibold">{basename(props.path)}</h1>
+        <p class="flex min-h-4 items-center gap-2 truncate text-xs text-neutral-500">
+          <span class="truncate">{shortPath(props.path, 4)}</span>
+          <span class={`shrink-0 truncate font-mono ${props.branch ? '' : 'invisible'}`} aria-hidden={props.branch ? undefined : 'true'}>
+            ⎇ {props.branch ?? '···'}
+          </span>
+        </p>
+      </div>
+      <button
+        onClick={() => props.onFavorite?.()}
+        disabled={!props.onFavorite}
+        aria-label={props.favorite ? '取消收藏' : '收藏'}
+        aria-pressed={props.favorite ? 'true' : 'false'}
+        class={`-mr-1 h-8 w-8 shrink-0 text-2xl leading-none disabled:opacity-30 ${props.favorite ? 'text-amber-400' : 'text-neutral-500'}`}
+      >
+        {props.favorite ? '★' : '☆'}
+      </button>
+    </header>
   )
 }
 
@@ -119,11 +159,11 @@ const firstPages = new Map<string, DirSessions>()
 function History(props: { path: string; branch?: string }) {
   const all = useOverview()
   const byId = createMemo(() => new Map(all.map((s) => [s.id, s])))
-  const cached = firstPages.get(props.path)
+  const cached = firstPages.get(untrack(() => props.path))
   const [list, setList] = createSignal<DirSession[]>(cached?.sessions ?? [])
   const [more, setMore] = createSignal(cached?.more ?? false)
   /** fresh：重新取第一页（替换先显示着的缓存）；more：翻下一页 */
-  const [loading, setLoading] = createSignal<false | 'fresh' | 'more'>(false)
+  const [loading, setLoading] = createSignal<false | 'fresh' | 'more'>('fresh')
   const [error, setError] = createSignal('')
 
   const load = async (kind: 'fresh' | 'more') => {
@@ -147,7 +187,8 @@ function History(props: { path: string; branch?: string }) {
       setLoading(false)
     }
   }
-  void load('fresh')
+  // load 一开始就写信号，组件体里不能写，挂上之后再取
+  onSettled(() => void load('fresh'))
 
   return (
     <section class="mt-2">

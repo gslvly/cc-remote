@@ -1,6 +1,5 @@
 // 概览流：全部会话的状态、额度，一直连着。首页的会话列表和额度、会话页的标签条和待批准横幅、状态栏的 5h / 7d 都从这里读
-import { type Accessor, createSignal } from 'solid-js'
-import { createStore, reconcile } from 'solid-js/store'
+import { type Accessor, createSignal, createStore, reconcile } from 'solid-js'
 import type { OverviewSessions, Quota, SessionInfo } from '../../shared/protocol'
 import { basename } from './format'
 import { openStream, type Stream } from './sse'
@@ -19,7 +18,7 @@ export function useOverview(): OverviewSessions {
       url: () => '/api/overview',
       probe: '/sessions',
       on: {
-        sessions: (d) => setSessions(reconcile(JSON.parse(d) as OverviewSessions, { key: 'id' })),
+        sessions: (d) => setSessions(reconcile(JSON.parse(d) as OverviewSessions, 'id')),
         quota: (d) => setQuota(JSON.parse(d) as Quota),
       },
       onConn: (c) => (dead = c === 'gone' || c === 'unauthorized'),

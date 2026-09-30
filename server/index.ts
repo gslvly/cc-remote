@@ -263,7 +263,7 @@ api.get('/sessions/:id/history', async (c) => {
   return c.json(s.history(Number(c.req.query('before')) || 0))
 })
 
-// 历史会话发消息就 resume；终端会话不行（只读，或者要先接管）
+// 历史会话发消息就 resume；终端还占着的不行（只读）
 api.post('/sessions/:id/messages', async (c) => {
   const s = await sessions.open(c.req.param('id'))
   if (!s) return c.json(NOT_FOUND, 404)
@@ -275,18 +275,6 @@ api.post('/sessions/:id/messages', async (c) => {
     return commandError(c, e)
   }
   return c.json({ ok: true })
-})
-
-// 接管终端退出后留下的会话
-api.post('/sessions/:id/takeover', async (c) => {
-  const s = await sessions.open(c.req.param('id'))
-  if (!s) return c.json(NOT_FOUND, 404)
-  try {
-    await sessions.takeover(s)
-  } catch (e) {
-    return commandError(c, e)
-  }
-  return c.json(s.info())
 })
 
 api.post('/sessions/:id/permissions/:reqId', async (c) => {

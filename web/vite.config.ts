@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, type Plugin } from "vite";
-import solid from "vite-plugin-solid";
+import solid from "@solidjs/vite-plugin";
 import { aiBridge } from "./plugins/vite-plugin-ai-bridge/index.ts";
 
 // 开发时把 /api 转给本机服务端，端口与 ~/.cc-remote/config.json 一致
@@ -34,9 +34,10 @@ function buildFiles(): Plugin {
   };
 }
 
-export default defineConfig({
+// `vite build --mode development` 也用 solid 的 dev 版（带诊断），插件默认只在 serve 时用
+export default defineConfig(({ mode }) => ({
   root: import.meta.dirname,
-  plugins: [solid(), tailwindcss(), buildFiles(), aiBridge()],
+  plugins: [solid({ dev: mode === "development" }), tailwindcss(), buildFiles(), aiBridge()],
   define: { __BUILD_ID__: JSON.stringify(BUILD_ID) },
   build: { outDir: "dist", emptyOutDir: true },
   server: {
@@ -45,4 +46,4 @@ export default defineConfig({
     strictPort: true,
     proxy: { "/api": `http://127.0.0.1:${serverPort()}` },
   },
-});
+}));

@@ -22,14 +22,16 @@ export interface SessionInfo {
   pendingPermissions: number
   /** 有没有活着的 claude 子进程（空闲超时、到并发上限时会被回收） */
   live: boolean
+  /** 手机上开着的：手机上新建的、续接过的，关掉（×）为止。进标签条；只打开看、没续接的历史会话没有 */
+  owned: boolean
   /** 最近一轮 init 报的模型和权限模式。内容流只发最近一段时可能不含 init，所以由服务端记着 */
   model?: string
   permissionMode?: PermissionMode
   /**
-   * 终端里的会话（登记表 ~/.claude/sessions 里有进程持有它）：running = 终端进程还在，只读旁观；
-   * exited = 手机看着的时候终端退出了，接管之后才能发消息（没人看时退出的就当历史会话）。没有这个字段就是托管会话 / 历史会话
+   * 终端里正占着的会话（登记表 ~/.claude/sessions 里有进程持有这个 id）：只读旁观。
+   * 终端退出、或 /clear 换了新会话后就没有这个字段，成了历史会话，发消息直接 resume
    */
-  terminal?: 'running' | 'exited'
+  terminal?: 'running'
   /** 状态栏：这个模型的上下文上限、effort（按模型记着，见 server/usage.ts）。还不知道就没有 */
   contextWindow?: number
   effort?: string

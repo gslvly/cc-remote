@@ -52,7 +52,7 @@ const TERMINAL_STATE: Record<string, SessionState> = { busy: 'running', shell: '
  */
 const CLI_DECIDES_MODE: {} = { resolvePermissionModeInCli: true }
 
-/** 终端还占着这个会话，或者终端退出后还没接管 */
+/** 终端还占着这个会话 */
 export class ConflictError extends Error {}
 
 /**
@@ -68,9 +68,9 @@ export class Session {
   title: string
   model?: string
   permissionMode?: PermissionMode
-  /** 手机上开的、在手机上发过消息的、接管过的：进标签条 */
+  /** 手机上开的、在手机上发过消息的：进标签条（前端标签条只放这些，终端会话在首页、目录页） */
   owned = false
-  terminal?: 'running' | 'exited'
+  terminal?: 'running'
   /** 持有它的终端进程报的 status */
   private terminalStatus?: string
   /** 最后一次有人打开或离开，没进标签条的会话按它从内存里清掉 */
@@ -145,6 +145,7 @@ export class Session {
       lastActivity: this.lastActivity,
       pendingPermissions: this.pending.size,
       live: this.live,
+      owned: this.owned,
       model: this.model,
       permissionMode: this.permissionMode,
       terminal: this.terminal,
@@ -190,11 +191,7 @@ export class Session {
     if (this.live) return
     const meta = await getSessionInfo(this.id)
     if (!meta) return // 还没写出 transcript
-    const title = titleOf(meta)
-    if (title && title !== this.title) {
-      this.title = title
-      this.emitState()
-    }
+    this.setTitle(titleOf(meta))
     const stamp = `${meta.fileSize}:${meta.lastModified}`
     if (stamp === this.stamp) return
     const entries = await readTranscript(this.id)
@@ -232,20 +229,25 @@ export class Session {
       if (active) this.lastActivity = h.updatedAt
       if (changed) this.emitState()
       else if (active) this.onChange()
+      // 没人看时不 sync，标题（终端自动起的、/rename 的）跟着终端状态变化刷一下：/clear 刚换上的新会话一开始只有 /clear
+      if (changed && !this.watched)
+        void getSessionInfo(this.id).then(
+          (m) => m && this.setTitle(titleOf(m)),
+          () => {},
+        )
     } else if (this.terminal === 'running') {
-      // 手机正看着的，显示「接管」让人确认；没人看的就是普通的历史会话，发消息直接 resume
-      this.terminal = this.watched ? 'exited' : undefined
+      // 终端退出了，或 /clear 换了新会话：这个 id 没人占着，就是普通的历史会话，发消息直接 resume
+      this.terminal = undefined
       this.terminalStatus = undefined
       this.emitState()
-      // 终端退出前最后写的几条
+      // 终端放手前最后写的几条
       if (this.watched) void this.sync()
     }
   }
 
-  /** 接管终端退出后留下的会话：之后就是托管会话，发消息时 resume */
-  adopt() {
-    this.terminal = undefined
-    this.owned = true
+  private setTitle(title: string | undefined) {
+    if (!title || title === this.title) return
+    this.title = title
     this.emitState()
   }
 

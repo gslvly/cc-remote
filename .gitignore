@@ -11,3 +11,4 @@ docs/
 .env
 .env.*
 coverage/
+deploy.sh

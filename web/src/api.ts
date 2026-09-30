@@ -1,4 +1,4 @@
-import { createEffect, createResource, type ResourceReturn } from 'solid-js'
+import { createMemo } from 'solid-js'
 import { go } from './router'
 import { checkBuild } from './update'
 
@@ -30,15 +30,15 @@ export async function api<T = unknown>(path: string, body?: unknown): Promise<T>
 const last = new Map<string, unknown>()
 
 /**
- * 页面上的 GET：上次取到的先显示着，同时重新取，切回页面时不再闪一下「加载中」。
- * 本地改过的值（mutate）也记下，下次进来不会先显示改之前的
+ * 页面上的 GET，返回异步 memo：读它的地方放在 <Loading> / <Errored> 里。
+ * 上次取到的先顶着（loadingValue，不挂起），同时重新取，切回页面时不再闪一下「加载中」
  */
-export function cachedResource<T>(path: string): ResourceReturn<T> {
+export function cachedGet<T>(path: string) {
   const prev = last.get(path) as T | undefined
-  const res = createResource(() => api<T>(path), prev === undefined ? {} : { initialValue: prev })
-  const [r] = res
-  createEffect(() => {
-    if (!r.error && r.latest !== undefined) last.set(path, r.latest)
-  })
-  return res
+  const get = async () => {
+    const v = await api<T>(path)
+    last.set(path, v)
+    return v
+  }
+  return prev === undefined ? createMemo(get) : createMemo(get, { loadingValue: prev })
 }

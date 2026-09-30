@@ -1,4 +1,4 @@
-import { createSignal, For, Index, Show } from 'solid-js'
+import { createSignal, For, Show, untrack } from 'solid-js'
 import { type SheetProps, Sheet, SheetHead, primary, secondary, useDecide } from './PermissionSheet'
 
 export interface Question {
@@ -27,7 +27,8 @@ export function questionsOf(input: Record<string, unknown>): Question[] {
  */
 export function QuestionSheet(props: SheetProps) {
   const { busy, error, decide } = useDecide(props)
-  const questions = questionsOf(props.req.input)
+  // 换请求时弹层整个重建（Session 里 keyed），问题只取一次
+  const questions = untrack(() => questionsOf(props.req.input))
   const [picked, setPicked] = createSignal<string[][]>(questions.map(() => []))
   const [other, setOther] = createSignal<string[]>(questions.map(() => ''))
 
@@ -67,7 +68,7 @@ export function QuestionSheet(props: SheetProps) {
     <Sheet>
       <SheetHead {...props} label="Claude 在问你" />
       <div class="mt-2 space-y-5">
-        <Index each={questions}>
+        <For each={questions} keyed={false}>
           {(q, qi) => (
             <div>
               <p class="text-xs text-neutral-500">
@@ -82,7 +83,7 @@ export function QuestionSheet(props: SheetProps) {
                     return (
                       <button
                         onClick={() => pick(qi, o.label)}
-                        aria-pressed={on()}
+                        aria-pressed={on() ? 'true' : 'false'}
                         class={`flex w-full flex-col rounded-xl border px-3 py-2 text-left ${
                           on() ? 'border-sky-500 bg-sky-500/10' : 'border-neutral-700'
                         }`}
@@ -112,7 +113,7 @@ export function QuestionSheet(props: SheetProps) {
               </Show>
             </div>
           )}
-        </Index>
+        </For>
       </div>
       <Show when={error()}>
         <p class="mt-2 text-sm text-red-400">{error()}</p>

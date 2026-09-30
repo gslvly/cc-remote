@@ -5,7 +5,7 @@
     "module": "preserve",
     "moduleResolution": "bundler",
     "jsx": "preserve",
-    "jsxImportSource": "solid-js",
+    "jsxImportSource": "@solidjs/web",
     "types": ["vite/client"],
     "strict": true,
     "noEmit": true,

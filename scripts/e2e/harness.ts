@@ -164,10 +164,12 @@ export async function run(main: (ctx: { page: Page }) => Promise<void>, opts: { 
 
   try {
     if (opts.browser) {
-      browser = await chromium.launch()
+      // 用本机装的 Chrome，不装 playwright 自带的浏览器
+      browser = await chromium.launch({ channel: 'chrome' })
       const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true })
       page = await ctx.newPage()
       page.on('console', (m) => ['warning', 'error'].includes(m.type()) && console.log(`  [console] ${m.text()}`))
+      page.on('pageerror', (e) => console.log(`  [pageerror] ${e.message}`))
       // 在页面里登录（ctx.request 在 bun 下解析 set-cookie 会崩）
       await page.goto(`${BASE}/api/build`)
       await page.evaluate((token) => fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) }), token)

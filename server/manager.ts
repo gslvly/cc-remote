@@ -71,19 +71,10 @@ export class SessionManager {
     if (!s.live) {
       await this.scan()
       if (s.terminal === 'running') throw new ConflictError('这个会话正在终端里运行，只能旁观')
-      if (s.terminal === 'exited') throw new ConflictError('终端刚退出，先接管再发消息')
       await s.sync()
       if (!s.live) this.makeRoom()
     }
     s.send(text)
-  }
-
-  /** 接管终端退出后留下的会话。终端还活着时不行：两边同时写会分叉 */
-  async takeover(s: Session) {
-    await this.scan()
-    if (s.terminal === 'running') throw new ConflictError('终端还在运行，退出后才能接管')
-    await s.sync()
-    s.adopt()
   }
 
   /** 概览流：托管的会话和终端里正在跑的，按最后活动时间倒序 */

@@ -1,4 +1,4 @@
-import { createEffect, createSignal, For, on, onCleanup, Show } from 'solid-js'
+import { createEffect, createSignal, For, onSettled, Show, untrack } from 'solid-js'
 import { Composer } from '../components/Composer'
 import { ItemView, LiveView } from '../components/ItemView'
 import { PermissionSheet, type SheetProps } from '../components/PermissionSheet'
@@ -18,24 +18,37 @@ import { modelLabel } from '../status'
 import { TODO_TOOLS } from '../session/view'
 
 export function SessionPage(props: { id: string }) {
-  const s = openSession(props.id)
-  onCleanup(s.detach)
+  // 换会话时整页重建（App 里 keyed），id 只取一次
+  const s = openSession(untrack(() => props.id))
+  // 连流会写连接状态，组件体里不能写：挂上之后再连，销毁时断开
+  onSettled(() => {
+    s.attach()
+    return s.detach
+  })
   const all = useOverview()
   const quota = useQuota()
   const { view } = s
   let scroller: HTMLDivElement | undefined
   let stick = true
+  /** 只打开看、还没续接的历史会话：不在标签条里，页头标「历史」，发消息就续接 */
+  const history = () => {
+    const i = s.info()
+    return !!i && !i.owned && !i.terminal
+  }
 
   // 切页、回前台都会重连，一般一两百毫秒：这期间照旧显示缓存的状态，断开超过 1 秒才换成「连接中…」
   const [slow, setSlow] = createSignal(false)
-  createEffect(() => {
-    if (s.conn() === 'open') {
-      setSlow(false)
-      return
-    }
-    const t = setTimeout(() => setSlow(true), 1000)
-    onCleanup(() => clearTimeout(t))
-  })
+  createEffect(
+    () => s.conn() === 'open',
+    (open) => {
+      if (open) {
+        setSlow(false)
+        return
+      }
+      const t = setTimeout(() => setSlow(true), 1000)
+      return () => clearTimeout(t)
+    },
+  )
 
   // 在底部附近时跟随新内容（包括正在蹦的字）；用户往上翻了就不打扰。切回缓存里的会话时也从底部开始。
   // 等新内容画出来再滚（见 afterPaint），排着的滚动一次就够。离底部超过一屏（刚进来、历史刚到）先藏起消息区，
@@ -43,7 +56,8 @@ export function SessionPage(props: { id: string }) {
   const [hidden, setHidden] = createSignal(false)
   let following = false
   createEffect(
-    on([() => view.lastSeq, s.live], () => {
+    () => [view.lastSeq, s.live()],
+    () => {
       const el = scroller
       if (!el || !stick) return
       if (el.scrollHeight - el.scrollTop - el.clientHeight > el.clientHeight) setHidden(true)
@@ -54,7 +68,7 @@ export function SessionPage(props: { id: string }) {
         if (stick) el.scrollTop = el.scrollHeight
         requestAnimationFrame(() => setHidden(false))
       })
-    }),
+    },
   )
 
   // 往前补一页：内容加在上面，保持离底部的距离不变，眼前的消息不跳。
@@ -104,7 +118,7 @@ export function SessionPage(props: { id: string }) {
       }
     >
       <div class="mx-auto flex h-dvh max-w-2xl flex-col">
-        <TabBar current={props.id} sessions={all} currentInfo={s.info()} onClose={close} />
+        <TabBar current={props.id} cwd={s.info()?.cwd} sessions={all} onClose={close} />
         <header class="flex items-center gap-2 border-b border-neutral-800 px-4 py-2">
           <div class="min-w-0 flex-1">
             <h1 class="truncate text-sm font-medium">{s.info()?.title ?? '…'}</h1>
@@ -115,7 +129,7 @@ export function SessionPage(props: { id: string }) {
             when={!slow() && s.info()}
             fallback={<span class={`text-xs text-neutral-500 ${slow() ? '' : 'invisible'}`}>连接中…</span>}
           >
-            {(i) => <StateBadge state={i().state} terminal={i().terminal} />}
+            {(i) => <StateBadge state={i().state} terminal={i().terminal} history={history()} />}
           </Show>
         </header>
         <Show
@@ -169,27 +183,28 @@ export function SessionPage(props: { id: string }) {
           </Show>
         </div>
 
-        {/* 终端会话没有输入框：终端还在就只读，退出了可以接管 */}
+        {/* 终端还占着的会话没有输入框，只读；终端放手后就是历史会话，输入框出现 */}
         <Show
-          when={s.info()?.terminal && s.info()}
+          when={s.info()?.terminal}
           fallback={
             <Composer
               state={s.info()?.state ?? 'starting'}
               mode={s.info()?.permissionMode}
+              history={history()}
               onSend={s.actions.send}
               onInterrupt={s.actions.interrupt}
               onMode={s.actions.setMode}
             />
           }
         >
-          {(i) => <TerminalBar info={i()} onTakeover={s.actions.takeover} />}
+          <TerminalBar />
         </Show>
 
         {/* 按请求 id 重建弹层，上一个请求的 busy / 报错不会带到下一个。提问、计划各有自己的弹层 */}
         <Show when={view.pending[0]?.id} keyed>
           {(reqId) => {
             const sheet: SheetProps = {
-              req: view.pending[0]!,
+              req: untrack(() => view.pending[0]!),
               get more() {
                 return view.pending.length - 1
               },

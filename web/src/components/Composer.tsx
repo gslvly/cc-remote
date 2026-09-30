@@ -1,4 +1,4 @@
-import { createEffect, createSignal, on, Show } from 'solid-js'
+import { createEffect, createSignal, Show } from 'solid-js'
 import type { PermissionMode, SessionState, SwitchableMode } from '../../../shared/protocol'
 import { errorText } from '../format'
 import { ModeSelect } from './ModeSelect'
@@ -6,6 +6,8 @@ import { ModeSelect } from './ModeSelect'
 export function Composer(props: {
   state: SessionState
   mode?: PermissionMode
+  /** 只打开看、还没续接的历史会话：发消息就续接，进标签条 */
+  history?: boolean
   onSend: (text: string) => Promise<unknown>
   onInterrupt: () => Promise<unknown>
   onMode: (mode: SwitchableMode) => Promise<unknown>
@@ -19,13 +21,11 @@ export function Composer(props: {
   const showStop = () => busyState() && !text().trim()
 
   // 输入框随内容长高，最多 160px
-  createEffect(
-    on(text, () => {
-      if (!input) return
-      input.style.height = 'auto'
-      input.style.height = `${Math.min(input.scrollHeight, 160)}px`
-    }),
-  )
+  createEffect(text, () => {
+    if (!input) return
+    input.style.height = 'auto'
+    input.style.height = `${Math.min(input.scrollHeight, 160)}px`
+  })
 
   const run = async (fn: () => Promise<unknown>, clear: boolean) => {
     setBusy(true)
@@ -75,7 +75,7 @@ export function Composer(props: {
             } else if (!busy()) void submit()
           }}
           enterkeyhint="send"
-          placeholder={busyState() ? '排队发给 Claude…' : '继续对话…'}
+          placeholder={busyState() ? '排队发给 Claude…' : props.history ? '发消息即续接…' : '继续对话…'}
           class="min-h-10 flex-1 resize-none rounded-2xl border border-neutral-700 bg-neutral-900 px-3.5 py-2 text-base leading-6 outline-none focus:border-neutral-500"
         />
         <button

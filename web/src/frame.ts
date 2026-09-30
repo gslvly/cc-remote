@@ -3,7 +3,7 @@
  *
  * 规则：凡是用代码滚动——设 scrollTop / scrollLeft、调 scrollTo / scrollBy / scrollIntoView、
  * 调 focus()（会带出滚动；可以传 preventScroll 就不算）——只要同一轮里 DOM 刚变过（挂载、切页、数据到了、列表重渲染），
- * 就放进 afterPaint 里做，不要在 onMount / createEffect 里直接滚。
+ * 就放进 afterPaint 里做，不要在 onSettled / createEffect 里直接滚。
  *
  * 原因：iOS 27 主屏 web app（不管从 Safari 还是 Chrome 加的，都跑系统 WebKit）上，
  * DOM 刚变、同一帧里用代码滚动，整屏会闪一下白。WebKit 只修了 window.scrollTo 的这种情况

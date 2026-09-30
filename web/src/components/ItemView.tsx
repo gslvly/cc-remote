@@ -1,4 +1,4 @@
-import { createMemo, createSignal, For, Match, type ParentProps, Show, Switch } from 'solid-js'
+import { createMemo, createSignal, For, Match, type ParentProps, Show, Switch, untrack } from 'solid-js'
 import type { LiveBlock } from '../../../shared/protocol'
 import { shortPath } from '../format'
 import type { Item, ToolItem, ToolStatus } from '../session/view'
@@ -125,7 +125,8 @@ function Output(props: { item: ToolItem }) {
 
 /** 点开之后：Bash 是完整命令加输出，改文件的是 diff，查找类只看结果，其余是参数加结果 */
 function ToolDetail(props: { item: ToolItem }) {
-  const name = props.item.name
+  // 同一个工具条目的名字不会变
+  const name = untrack(() => props.item.name)
   const input = () => props.item.input
   const hunks = createMemo(() => editHunks(name, input()))
   return (
@@ -270,7 +271,11 @@ function PlanCard(props: { item: ToolItem }) {
 // 同一个 key 的条目 kind 不会变（store 按 key 合并），所以按 kind 分支只在创建时判断一次；
 // 分支里读 item 的字段仍是响应式的，文本、工具状态变了会原地更新
 export function ItemView(props: { item: Item; sub: Record<string, Item[]> }) {
-  const item = props.item
+  // 按 kind、name 分发只做一次（一条消息的种类不会变）；内容在 JSX 里读，照样更新
+  return untrack(() => view(props.item, props.sub))
+}
+
+function view(item: Item, sub: Record<string, Item[]>) {
   switch (item.kind) {
     case 'user':
       return (
@@ -288,7 +293,7 @@ export function ItemView(props: { item: Item; sub: Record<string, Item[]> }) {
         </details>
       )
     case 'tool':
-      if (item.name === 'Agent' || item.name === 'Task') return <AgentCard item={item} sub={props.sub} />
+      if (item.name === 'Agent' || item.name === 'Task') return <AgentCard item={item} sub={sub} />
       if (item.name === 'ExitPlanMode') return <PlanCard item={item} />
       return <ToolRow item={item} />
     case 'result':

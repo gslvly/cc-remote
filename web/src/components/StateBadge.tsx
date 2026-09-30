@@ -30,26 +30,24 @@ const GLYPH: Record<SessionState, string> = {
   idle: 'text-emerald-500',
 }
 
-/** 状态点；终端会话用 ▣（只读），终端退出了是灰的 */
+/** 状态点；终端会话用 ▣（只读） */
 export function StateDot(props: { state: SessionState; terminal?: SessionInfo['terminal'] }) {
   return (
     <Show when={props.terminal} fallback={<span class={`size-2 shrink-0 rounded-full ${DOT[props.state]}`} />}>
-      <span
-        class={`shrink-0 text-xs leading-none ${props.terminal === 'exited' ? 'text-neutral-500' : GLYPH[props.state]}`}
-      >
-        ▣
-      </span>
+      <span class={`shrink-0 text-xs leading-none ${GLYPH[props.state]}`}>▣</span>
     </Show>
   )
 }
 
-export function StateBadge(props: { state: SessionState; terminal?: SessionInfo['terminal'] }) {
-  const label = () =>
-    props.terminal === 'exited' ? '终端已退出' : props.terminal ? TERMINAL_LABEL[props.state] : LABEL[props.state]
+/** history：只打开看、还没续接的历史会话，不算空闲，标「历史」 */
+export function StateBadge(props: { state: SessionState; terminal?: SessionInfo['terminal']; history?: boolean }) {
+  const label = () => (props.terminal ? TERMINAL_LABEL[props.state] : LABEL[props.state])
   return (
-    <span class="inline-flex shrink-0 items-center gap-1.5 text-xs text-neutral-400">
-      <StateDot state={props.state} terminal={props.terminal} />
-      {label()}
-    </span>
+    <Show when={!props.history} fallback={<span class="shrink-0 text-xs text-neutral-500">历史</span>}>
+      <span class="inline-flex shrink-0 items-center gap-1.5 text-xs text-neutral-400">
+        <StateDot state={props.state} terminal={props.terminal} />
+        {label()}
+      </span>
+    </Show>
   )
 }

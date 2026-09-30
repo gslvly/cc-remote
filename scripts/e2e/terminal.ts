@@ -1,4 +1,4 @@
-// 终端会话：只读旁观 → 终端退出后接管 → 目录页的历史会话 → 打开历史会话发消息自动 resume
+// 终端会话：只读旁观 → 终端退出后直接发消息 resume → 目录页的历史会话 → 打开历史会话发消息自动 resume
 import { api, check, run, shot, sleep, terminal, testDir, until } from './harness'
 
 await run(
@@ -21,6 +21,7 @@ await run(
     await page.evaluate((id) => (location.hash = `#/s/${id}`), t.id)
     await page.waitForSelector('text=终端里正在用这个会话')
     check((await page.locator('textarea').count()) === 0, '终端在跑时只读，没有输入框')
+    check((await page.locator('nav [aria-current="page"]').count()) === 0, '终端会话不进标签条')
     const seen: number[] = []
     while (term.running) {
       seen.push(await page.locator('span.truncate', { hasText: /^\$ / }).count())
@@ -29,21 +30,23 @@ await run(
     check(new Set(seen).size > 1, '终端运行期间工具行跟着出现', seen.join(','))
     await shot('2-watching')
 
-    await page.waitForSelector('text=终端已退出，接管后', { timeout: 15_000 })
+    // 看着的时候终端退出：直接成了历史会话，输入框出现，不用先接管；还没续接，不进标签条
+    await page.waitForSelector('textarea[placeholder="发消息即续接…"]', { timeout: 15_000 })
     await page.waitForSelector('text=finished')
     check((await term.output).includes('finished'), '终端正常结束')
+    const info = await api(`/sessions/${t.id}`)
+    check(info.terminal === undefined, '终端退出后不再是终端会话', info.terminal)
+    check((await page.locator('header >> text=历史').count()) > 0, '页头标「历史」')
+    check((await page.locator('nav [aria-current="page"]').count()) === 0, '没续接的不进标签条')
     await shot('3-exited')
 
-    await page.click('button:has-text("接管")')
-    await page.waitForSelector('textarea[placeholder="继续对话…"]')
-    const info = await api(`/sessions/${t.id}`)
-    check(info.terminal === undefined, '接管后不再是终端会话', info.terminal)
-    check((await api('/sessions')).some((s: any) => s.id === t.id), '接管后进概览')
     await page.fill('textarea', 'What was the last step number you echoed? Reply with just the number word, like: four')
     await page.click('button[aria-label="发送"]')
-    await until('接管后的回复', async () => (await api(`/sessions/${t.id}`)).state === 'idle' && (await page.locator('text=/完成 ·/').count()) > 0)
-    check(/four/i.test((await page.locator('.md').allInnerTexts()).at(-1) ?? ''), '接管后接着原对话回答')
-    await shot('4-taken-over')
+    await until('终端退出后的回复', async () => (await api(`/sessions/${t.id}`)).state === 'idle' && (await page.locator('text=/完成 ·/').count()) > 0)
+    check(/four/i.test((await page.locator('.md').allInnerTexts()).at(-1) ?? ''), '接着原对话回答')
+    check((await api('/sessions')).some((s: any) => s.id === t.id), '发过消息后进概览')
+    check((await page.locator('nav [aria-current="page"]').count()) === 1, '续接后进标签条并高亮')
+    await shot('4-resumed')
 
     await page.evaluate((d) => (location.hash = `#/dir?path=${encodeURIComponent(d)}`), dir)
     await page.waitForSelector('text=历史会话')
@@ -60,7 +63,7 @@ await run(
       return (await api(`/dir/sessions?path=${encodeURIComponent(dir)}`)).sessions.find((s: any) => !listed.has(s.id))
     })
     await page.evaluate((id) => (location.hash = `#/s/${id}`), hist.id)
-    await page.waitForSelector('textarea[placeholder="继续对话…"]')
+    await page.waitForSelector('textarea[placeholder="发消息即续接…"]')
     check((await page.locator('.md', { hasText: 'hello' }).count()) > 0, '历史会话载入了原来的回复')
     await page.fill('textarea', 'Reply with just: resumed-ok')
     await page.click('button[aria-label="发送"]')
