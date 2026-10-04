@@ -12,6 +12,18 @@ export const MODE_LABEL: Record<PermissionMode, string> = {
   dontAsk: '不询问',
 }
 
+// 配色大致照终端：规划青、接受编辑紫、跳过审批红。页头的模式、输入框的边框也用它
+export const MODE_TEXT: Partial<Record<PermissionMode, string>> = {
+  plan: 'text-sky-300',
+  acceptEdits: 'text-violet-300',
+  bypassPermissions: 'text-red-300',
+}
+export const MODE_BORDER: Partial<Record<PermissionMode, string>> = {
+  plan: 'border-sky-700',
+  acceptEdits: 'border-violet-700',
+  bypassPermissions: 'border-red-800',
+}
+
 /** 服务端给的是它那台机器上的路径：Windows 的（C:\… 或 \\server\…）用 \，其他用 / */
 export const sepOf = (p: string) => (/^([A-Za-z]:|\\\\)/.test(p) ? '\\' : '/')
 

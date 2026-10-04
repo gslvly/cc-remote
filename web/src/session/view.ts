@@ -18,8 +18,8 @@ export interface ToolItem {
   summary?: string
 }
 
-/** 人输入的。uuid 是它在 transcript 里的 uuid，回退时用 */
-export type UserItem = { kind: 'user'; key: string; text: string; uuid?: string }
+/** 人输入的。uuid 是它在 transcript 里的 uuid，回退时用；images 是带了几张图片 */
+export type UserItem = { kind: 'user'; key: string; text: string; uuid?: string; images?: number }
 
 export type Item =
   | UserItem
@@ -27,7 +27,8 @@ export type Item =
   | { kind: 'thinking'; key: string; text: string }
   | ToolItem
   | { kind: 'result'; key: string; ok: boolean; text: string }
-  | { kind: 'note'; key: string; text: string; tone: 'muted' | 'error' }
+  /** mono：命令的输出，等宽、限高 */
+  | { kind: 'note'; key: string; text: string; tone: 'muted' | 'error'; mono?: boolean }
 
 export type TodoStatus = 'pending' | 'in_progress' | 'completed'
 
@@ -276,7 +277,7 @@ export function applyEvents(v: View, envs: EventEnvelope[]): View {
     switch (ev.type) {
       case 'user_input':
         interrupted = false
-        items.push({ kind: 'user', key, text: ev.text, uuid: ev.uuid })
+        items.push({ kind: 'user', key, text: ev.text, uuid: ev.uuid, images: ev.images })
         break
       case 'sdk':
         onSdk(ev.msg, key)
@@ -295,7 +296,7 @@ export function applyEvents(v: View, envs: EventEnvelope[]): View {
         items.push({ kind: 'note', key, text: ev.message, tone: 'error' })
         break
       case 'note':
-        items.push({ kind: 'note', key, text: ev.text, tone: 'muted' })
+        items.push({ kind: 'note', key, text: ev.text, tone: 'muted', mono: ev.mono })
         break
     }
   }

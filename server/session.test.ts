@@ -92,6 +92,23 @@ describe('Session 与 transcript 对齐', () => {
     expect(s.lastSeq).toBe(n)
     expect(s.epoch).toBe(epoch)
   })
+
+  test('带图片：Claude 收到图片和文字，缓冲里只记张数；只有图片也行；从 transcript 读出来一样', async () => {
+    const t = new Transcript()
+    const s = new Session(t.id, CWD, 't', () => {}, { fresh: true })
+    const img = { mediaType: 'image/png' as const, data: 'iVBORw0KGgo=' }
+    s.send('look', [img, img])
+    await idle(s)
+    s.send('', [img])
+    await idle(s)
+    const got = lines(s).filter((l) => !l.startsWith('system:') && !l.startsWith('result:'))
+    expect(got).toEqual(['> [2 张图] look', 're: look（2 张图）', '> [1 张图] ', 're: （1 张图）'])
+    expect(JSON.stringify(s.history(s.lastSeq + 1))).not.toContain(img.data)
+
+    const fresh = open(t)
+    await fresh.sync()
+    expect(lines(fresh)).toEqual(got)
+  })
 })
 
 describe('关掉会话', () => {

@@ -9,7 +9,7 @@ const cut = (s: string, n = 100) => {
 export function eventLine(ev: SessionEvent): string {
   switch (ev.type) {
     case 'user_input':
-      return `> ${cut(ev.text)}`
+      return `> ${ev.images ? `[${ev.images} 张图] ` : ''}${cut(ev.text)}`
     case 'note':
       return `note ${cut(ev.text)}`
     case 'error':

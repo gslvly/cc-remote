@@ -2,8 +2,10 @@
 // 内容流只连正在看的那个会话，切走就断开（服务端照常跑、照常缓冲）
 import { type Accessor, createSignal, createStore, reconcile } from 'solid-js'
 import type {
+  BashBody,
   EventEnvelope,
   HistoryPage,
+  ImageAttachment,
   LiveBlock,
   LiveUpdate,
   PermissionDecisionBody,
@@ -12,6 +14,7 @@ import type {
   RewindResult,
   SessionInfo,
   SetModeBody,
+  SendMessageBody,
   SetModelBody,
   StreamHello,
   SwitchableMode,
@@ -42,7 +45,9 @@ export interface SessionStore {
   /** 断开内容流，内容留在缓存里 */
   detach(): void
   actions: {
-    send(text: string): Promise<unknown>
+    send(text: string, images?: ImageAttachment[]): Promise<unknown>
+    /** ! 命令：开始跑就返回，输入输出经内容流到达 */
+    bash(command: string): Promise<unknown>
     decide(reqId: string, d: PermissionDecisionBody): Promise<unknown>
     interrupt(): Promise<unknown>
     /** 切权限模式 */
@@ -159,7 +164,9 @@ function createEntry(id: string): SessionStore {
   }
 
   const actions = {
-    send: (text: string) => api(`/sessions/${id}/messages`, { text }),
+    send: (text: string, images?: ImageAttachment[]) =>
+      api(`/sessions/${id}/messages`, { text, images: images?.length ? images : undefined } satisfies SendMessageBody),
+    bash: (command: string) => api(`/sessions/${id}/bash`, { command } satisfies BashBody),
     decide: (reqId: string, d: PermissionDecisionBody) => api(`/sessions/${id}/permissions/${reqId}`, d),
     interrupt: () => api(`/sessions/${id}/interrupt`, {}),
     setMode: (mode: SwitchableMode) => api<SessionInfo>(`/sessions/${id}/mode`, { mode } satisfies SetModeBody).then(setInfo),

@@ -2,7 +2,7 @@
 // 子进程停了（回收、崩溃）这些就都没了；事件缓冲、模型和权限模式在 Session 里，经 RunHost 交过去
 import { type PermissionMode, query, type Query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { UUID } from 'node:crypto'
-import type { LiveUpdate, SessionEvent, SessionState } from '../shared/protocol'
+import type { ImageAttachment, LiveUpdate, SessionEvent, SessionState } from '../shared/protocol'
 import { learnCatalog, updateCommands } from './catalog'
 import { InputQueue, type SpawnArgs, spawnOptions } from './child'
 import { LiveTracker } from './live'
@@ -36,6 +36,8 @@ export class Run {
   /** 收到过 init（流式输入时每一轮都发一次） */
   private started = false
   private turnRunning = false
+  /** append 了、还没收到 result 的 */
+  private appended = new Set<string>()
   /** 停掉了：之后它发来的消息、它的退出都不再理会 */
   private closed = false
   /** 正在生成的那一块，不进缓冲 */
@@ -65,21 +67,44 @@ export class Run {
 
   get state(): SessionState {
     if (this.approvals.size > 0) return 'requires_action'
-    if (!this.started) return 'starting'
-    return this.turnRunning ? 'running' : 'idle'
+    if (!this.turnRunning) return 'idle'
+    return this.started ? 'running' : 'starting'
   }
 
   /** 一轮输入。指定 uuid：transcript 里这条消息就用它，与 transcript 对齐时认得出来 */
-  send(text: string, uuid: UUID) {
+  send(text: string, uuid: UUID, images: ImageAttachment[] = []) {
+    // 图片在前、文字在后（终端贴图也是这样）；API 不收空的 text block
+    const content = images.length
+      ? [
+          ...images.map((i) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: i.mediaType, data: i.data } })),
+          ...(text ? [{ type: 'text' as const, text }] : []),
+        ]
+      : text
     this.input.push({
       type: 'user',
       uuid,
-      message: { role: 'user', content: text },
+      message: { role: 'user', content },
       parent_tool_use_id: null,
       origin: { kind: 'human' },
       session_id: this.host.id,
     })
     this.turnRunning = true
+  }
+
+  /**
+   * 只写进对话、不开始这一轮（! 命令的输入和输出），下次发消息时一起交给 Claude。
+   * CLI 照样每条回一个 init 和一个 0 轮的 result（user_message_uuid 是这条），result 不进缓冲、不算一轮
+   */
+  append(text: string, uuid: UUID) {
+    this.appended.add(uuid)
+    this.input.push({
+      type: 'user',
+      uuid,
+      message: { role: 'user', content: text },
+      parent_tool_use_id: null,
+      shouldQuery: false,
+      session_id: this.host.id,
+    })
   }
 
   /** 中断这一轮，等批准的都作废 */
@@ -127,6 +152,7 @@ export class Run {
       quota.fromEvent(msg.rate_limit_info)
       pusher.rateLimit(host, msg.rate_limit_info)
     }
+    if (msg.type === 'result' && this.ownAppend(msg.user_message_uuids ?? [])) return
     let stateChanged = false
     if (msg.type === 'system' && msg.subtype === 'init') {
       const warn = (what: string) => (e: unknown) => console.warn(`[session ${host.id.slice(0, 8)}] 取${what}失败`, e)
@@ -156,5 +182,12 @@ export class Run {
     if ((msg.type === 'assistant' && !msg.parent_tool_use_id) || msg.type === 'result') this.streaming.settle()
     host.push({ type: 'sdk', msg: slim(msg) })
     if (stateChanged) host.emitState()
+  }
+
+  /** 这个 result 只是 append 的回执。和真消息并成一轮的（排在它后面马上发了）不算 */
+  private ownAppend(uuids: string[]): boolean {
+    const own = uuids.length > 0 && uuids.every((u) => this.appended.has(u))
+    for (const u of uuids) this.appended.delete(u)
+    return own
   }
 }

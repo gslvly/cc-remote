@@ -1,10 +1,11 @@
 // 审批的决定怎么回给 SDK；权限模式、模型、effort 的切换与记忆
-import { CWD, idle, spawned, Transcript } from './testkit'
+import { CWD, idle, lines, spawned, Transcript } from './testkit'
 import { describe, expect, test } from 'bun:test'
 import type { PermissionUpdate } from '@anthropic-ai/claude-agent-sdk'
 import type { PermissionRequest } from '../shared/protocol'
 
 const { Session } = await import('./session')
+const { SessionManager } = await import('./manager')
 const { permissionResult } = await import('./permission')
 const { catalog, CLEAR_COMMAND } = await import('./catalog')
 
@@ -123,6 +124,21 @@ describe('切模型、effort，命令列表', () => {
     s.send('three')
     await idle(s)
     expect(spawned.at(-1)!.options.effort).toBeUndefined()
+  })
+
+  test('开新会话时选的模式、模型、effort 第一次起子进程就带上；只有图片时标题先占位', async () => {
+    const manager = new SessionManager({ maxLive: 3, idleMinutes: 10, roots: [CWD] })
+    const s = await manager.create(CWD, '', {
+      images: [{ mediaType: 'image/png', data: 'AAAA' }],
+      mode: 'plan',
+      model: 'sonnet',
+      effort: 'low',
+    })
+    await idle(s)
+    expect(spawned.at(-1)!.options).toMatchObject({ sessionId: s.id, permissionMode: 'plan', model: 'sonnet', effort: 'low' })
+    expect(lines(s).filter((l) => l.startsWith('re:'))).toEqual(['re: （1 张图）'])
+    expect(s.info()).toMatchObject({ title: '[图片]', effort: 'low' })
+    manager.closeAll()
   })
 
   test('命令列表滤掉 /clear 这类；手打的 /clear 也认得出来', async () => {

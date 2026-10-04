@@ -278,6 +278,7 @@ function UserBubble(props: { item: UserItem } & OnRewind) {
         onClick={() => rewind() && setOpen(!open())}
         class="max-w-[85%] rounded-2xl rounded-br-md bg-neutral-800 px-3.5 py-2 whitespace-pre-wrap"
       >
+        <Show when={props.item.images}>{(n) => <div class="text-sm text-neutral-400">［{n()} 张图片］</div>}</Show>
         {props.item.text}
       </div>
       <Show when={open() && rewind()}>
@@ -325,6 +326,12 @@ function view(item: Item, sub: Record<string, Item[]>, p: OnRewind) {
     case 'result':
       return <p class={`py-1 text-center text-xs ${item.ok ? 'text-neutral-500' : 'text-red-400'}`}>{item.text}</p>
     case 'note':
+      if (item.mono)
+        return (
+          <pre class="max-h-64 overflow-auto rounded-lg bg-neutral-900 px-2.5 py-1.5 font-mono text-xs break-all whitespace-pre-wrap text-neutral-400">
+            {item.text}
+          </pre>
+        )
       return (
         <p class={`text-xs whitespace-pre-wrap ${item.tone === 'error' ? 'text-red-400' : 'text-neutral-500'}`}>
           {item.text}

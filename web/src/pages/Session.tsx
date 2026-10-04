@@ -11,13 +11,14 @@ import { StatusLine } from '../components/StatusLine'
 import { ApprovalBanner, TabBar } from '../components/TabBar'
 import { TerminalBar } from '../components/TerminalBar'
 import { TodoBar } from '../components/TodoBar'
-import { basename, errorText } from '../format'
+import { basename, errorText, MODE_LABEL, MODE_TEXT } from '../format'
 import { afterPaint } from '../frame'
 import { useOverview, useQuota } from '../overview'
 import { go } from '../router'
 import { openSession } from '../session/store'
 import { modelLabel } from '../status'
 import { TODO_TOOLS, type UserItem } from '../session/view'
+import { fitViewport } from '../viewport'
 
 export function SessionPage(props: { id: string }) {
   // 换会话时整页重建（App 里 keyed），id 只取一次
@@ -27,11 +28,15 @@ export function SessionPage(props: { id: string }) {
     s.attach()
     return s.detach
   })
+  // 整页高度跟着键盘上方的可见区域（见 viewport.ts）
+  onSettled(fitViewport)
   const all = useOverview()
   const quota = useQuota()
   const { view } = s
   let scroller: HTMLDivElement | undefined
   let stick = true
+  /** 上一次滚动事件时的 scrollTop，分辨是不是往上翻 */
+  let lastTop = 0
   /** 只打开看、还没续接的历史会话：不在标签条里，页头标「历史」，发消息就续接 */
   const history = () => {
     const i = s.info()
@@ -68,21 +73,31 @@ export function SessionPage(props: { id: string }) {
   // 不然会露一帧对话开头；滚完的下一帧再露出来，露出和滚动也不挤在同一帧
   const [hidden, setHidden] = createSignal(false)
   let following = false
+  const follow = () => {
+    if (following) return
+    following = true
+    afterPaint(() => {
+      following = false
+      if (stick && scroller) scroller.scrollTop = scroller.scrollHeight
+      requestAnimationFrame(() => setHidden(false))
+    })
+  }
   createEffect(
     () => [view.lastSeq, s.live()],
     () => {
       const el = scroller
       if (!el || !stick) return
       if (el.scrollHeight - el.scrollTop - el.clientHeight > el.clientHeight) setHidden(true)
-      if (following) return
-      following = true
-      afterPaint(() => {
-        following = false
-        if (stick) el.scrollTop = el.scrollHeight
-        requestAnimationFrame(() => setHidden(false))
-      })
+      follow()
     },
   )
+  // 消息区变矮（弹键盘、输入框长高）时 scrollTop 不变，底部几条会被盖住：原本贴着底就继续贴着
+  onSettled(() => {
+    if (!scroller) return
+    const ro = new ResizeObserver(() => stick && follow())
+    ro.observe(scroller)
+    return () => ro.disconnect()
+  })
 
   // 往前补一页：内容加在上面，保持离底部的距离不变，眼前的消息不跳。
   // 浏览器的滚动锚定（Safari 27 起也有）多半已经保持住了，没保持住才自己滚，少一次同帧滚动
@@ -130,12 +145,12 @@ export function SessionPage(props: { id: string }) {
         </div>
       }
     >
-      <div class="mx-auto flex h-dvh max-w-2xl flex-col">
+      <div class="mx-auto flex h-[var(--vvh,100dvh)] max-w-2xl flex-col">
         <TabBar current={props.id} cwd={s.info()?.cwd} sessions={all} onClose={close} />
         <header class="flex items-center gap-2 border-b border-neutral-800 px-4 py-2">
           <div class="min-w-0 flex-1">
             <h1 class="truncate text-sm font-medium">{s.info()?.title ?? '…'}</h1>
-            {/* 目录 · 模型 · 上下文上限 · effort，点模型那段切模型、effort（终端会话只读）；权限模式在输入框左边 */}
+            {/* 目录 · 模型 · 上下文上限 · effort · 权限模式（默认的不显示），点模型或模式那段弹出切换（终端会话只读） */}
             <p class="min-h-4 truncate text-xs text-neutral-500">
               <Show when={s.info()}>
                 {(i) => (
@@ -148,6 +163,16 @@ export function SessionPage(props: { id: string }) {
                     >
                       {modelLabel(i()) || '模型'}
                     </button>
+                    <Show when={i().permissionMode !== 'default' && i().permissionMode}>
+                      {(m) => (
+                        <>
+                          {' · '}
+                          <button onClick={() => setPicking(true)} disabled={!!i().terminal} class={MODE_TEXT[m()] ?? ''}>
+                            {MODE_LABEL[m()]}
+                          </button>
+                        </>
+                      )}
+                    </Show>
                   </>
                 )}
               </Show>
@@ -187,10 +212,14 @@ export function SessionPage(props: { id: string }) {
           ref={scroller}
           onScroll={(e) => {
             const el = e.currentTarget
-            stick = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+            // 回到底部附近就跟随；离开底部只认往上翻。代码滚到底之后、滚动事件到达之前（差一帧），
+            // 紧跟着到的内容（命令输出、不带思考的回答）可能已经撑高一大截，按离底距离算会误判成用户翻走了，之后就不再跟
+            if (el.scrollHeight - el.scrollTop - el.clientHeight < 80) stick = true
+            else if (el.scrollTop < lastTop) stick = false
+            lastTop = el.scrollTop
             if (el.scrollTop < 300 && s.more() && !s.loadingOlder()) void loadOlder()
           }}
-          class={`flex-1 space-y-3 overflow-y-auto px-4 py-4 ${hidden() ? 'invisible' : ''}`}
+          class={`flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-4 ${hidden() ? 'invisible' : ''}`}
         >
           <Show when={s.more()}>
             <button
@@ -224,9 +253,16 @@ export function SessionPage(props: { id: string }) {
               cwd={s.info()?.cwd}
               draftKey={props.id}
               fill={fill()}
-              onSend={s.actions.send}
+              onSend={(text, images) => {
+                // 自己发的东西要看到回应：往上翻着也回到跟随
+                stick = true
+                return s.actions.send(text, images)
+              }}
+              onBash={(cmd) => {
+                stick = true
+                return s.actions.bash(cmd)
+              }}
               onInterrupt={s.actions.interrupt}
-              onMode={s.actions.setMode}
             />
           }
         >
@@ -234,7 +270,18 @@ export function SessionPage(props: { id: string }) {
         </Show>
 
         <Show when={picking() && s.info()}>
-          {(i) => <ModelSheet info={i()} onSet={s.actions.setModel} onClose={() => setPicking(false)} />}
+          {(i) => (
+            <ModelSheet
+              cwd={i().cwd}
+              model={i().model}
+              effort={i().effort}
+              mode={i().permissionMode}
+              onModel={(model) => s.actions.setModel({ model })}
+              onEffort={(effort) => s.actions.setModel({ effort: effort ?? null })}
+              onMode={(m) => m && s.actions.setMode(m)}
+              onClose={() => setPicking(false)}
+            />
+          )}
         </Show>
 
         <Show when={rewinding()} keyed>

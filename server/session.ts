@@ -2,6 +2,7 @@ import { getSessionInfo, type EffortLevel, type PermissionMode, type RewindFiles
 import type {
   EventEnvelope,
   HistoryPage,
+  ImageAttachment,
   LiveUpdate,
   PermissionDecisionBody,
   RewindRestore,
@@ -16,8 +17,9 @@ import { EventBuffer, type EventId } from './buffer'
 import { resolveModel } from './catalog'
 import { rewindFiles } from './child'
 import { Run, type RunHost } from './run'
+import { bashInput, bashOutput, runShell } from './shell'
 import type { Holder } from './terminal'
-import { keptBefore, readTranscript, titleOf, type TranscriptEntry } from './transcript'
+import { fromUserText, keptBefore, readTranscript, titleOf, type TranscriptEntry } from './transcript'
 import { modelFacts, UsageTracker } from './usage'
 
 export type { EventId }
@@ -74,6 +76,8 @@ export class Session implements RunHost {
    * 在那之前起子进程都带上它（resumeSessionAt），也不追 transcript（后面还是回退掉的那些）
    */
   private resumeAt?: string
+  /** 正在跑的 ! 命令，中断时停掉它。跑完才把输入输出交给子进程，在那之前缓冲里有、transcript 里还没有，不对齐 */
+  private shell?: AbortController
 
   /** fresh：新会话，第一次起子进程时用这个 id 新建；否则是已有的会话，起子进程就 resume */
   constructor(
@@ -115,6 +119,7 @@ export class Session implements RunHost {
 
   get state(): SessionState {
     if (this.terminal === 'running') return TERMINAL_STATE[this.terminalStatus ?? ''] ?? 'idle'
+    if (this.shell) return 'running'
     return this.run?.state ?? 'idle'
   }
 
@@ -171,7 +176,7 @@ export class Session implements RunHost {
   }
 
   private async doSync() {
-    if (this.live || this.resumeAt) return
+    if (this.live || this.resumeAt || this.shell) return
     const meta = await getSessionInfo(this.id)
     if (!meta) return // 还没写出 transcript
     this.setTitle(titleOf(meta))
@@ -239,14 +244,16 @@ export class Session implements RunHost {
   }
 
   /** 子进程被回收了就先 resume；并发上限、终端是否占着、transcript 是否对齐由 SessionManager 先处理 */
-  send(text: string) {
+  send(text: string, images: ImageAttachment[] = []) {
+    // 命令的输出要排在这条前面
+    if (this.shell) throw new ConflictError('命令还在跑，等它跑完或中断')
     const run = this.run ?? this.start()
     // 截断点用这一次就够：这条消息写进 transcript 就从截断处分了叉，之后正常 resume
     this.resumeAt = undefined
     this.owned = true
     const uuid = crypto.randomUUID()
-    this.push({ type: 'user_input', text, uuid })
-    run.send(text, uuid)
+    this.push({ type: 'user_input', text, uuid, ...(images.length && { images: images.length }) })
+    run.send(text, uuid, images)
     this.emitState()
   }
 
@@ -281,7 +288,38 @@ export class Session implements RunHost {
     this.emitState()
   }
 
+  /**
+   * ! 命令（终端里的 shell 模式）：在会话目录里跑，命令和输出各记一条用户消息，不开始这一轮，下次发消息时 Claude 一起看到。
+   * 开始跑就返回；跑的时候状态是 running，中断就停掉命令（停掉的也照样记）。终端是否占着、并发上限由 SessionManager 先处理
+   */
+  bash(command: string) {
+    if (this.terminal) throw new ConflictError('终端会话不能跑命令')
+    if (this.state !== 'idle') throw new ConflictError('Claude 还在运行，停下再跑命令')
+    const shell = (this.shell = new AbortController())
+    this.owned = true
+    const input = { text: bashInput(command), uuid: crypto.randomUUID() }
+    this.push(fromUserText(input.text, input.uuid)!)
+    this.emitState()
+    void runShell(command, this.cwd, shell.signal).then((out) => {
+      // 会话关掉了
+      if (this.shell !== shell) return
+      this.shell = undefined
+      const output = { text: bashOutput(out), uuid: crypto.randomUUID() }
+      const ev = fromUserText(output.text, output.uuid)
+      if (ev) this.push(ev)
+      // 输出没内容时缓冲里没有这条，transcript 里有，也要记住
+      this.buffer.lastUuid = output.uuid
+      const run = this.run ?? this.start()
+      // 同发消息：写进去就从回退的截断处分了叉
+      this.resumeAt = undefined
+      run.append(input.text, input.uuid)
+      run.append(output.text, output.uuid)
+      this.emitState()
+    })
+  }
+
   async interrupt() {
+    if (this.shell) return this.shell.abort()
     await this.run?.interrupt()
   }
 
@@ -329,12 +367,14 @@ export class Session implements RunHost {
   /** 手机上关掉：停子进程、出标签条。transcript 还在，之后能从目录里再打开 */
   dismiss() {
     this.owned = false
-    this.stop()
+    this.close()
     this.emitState()
   }
 
-  /** 服务端退出 */
+  /** 服务端退出。正在跑的命令也停掉、不再记 */
   close() {
+    this.shell?.abort()
+    this.shell = undefined
     this.stop()
   }
 

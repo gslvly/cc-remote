@@ -4,12 +4,14 @@ import { join, posix } from 'node:path'
 import { type Context, Hono } from 'hono'
 import { type SSEMessage, streamSSE } from 'hono/streaming'
 import type {
+  BashBody,
   CreateSessionBody,
   DirEntry,
   DirInfo,
   DirSessions,
   FavoriteBody,
   FsList,
+  ImageAttachment,
   PermissionDecisionBody,
   RecentDir,
   RewindBody,
@@ -102,9 +104,28 @@ const NOT_FOUND = { error: '会话不存在' }
 const MODES = new Set<unknown>(['default', 'acceptEdits', 'plan'] satisfies SwitchableMode[])
 const RESTORES = new Set<unknown>(['both', 'conversation', 'code'] satisfies RewindRestore[])
 const EFFORTS = new Set<unknown>(['low', 'medium', 'high', 'xhigh', 'max', null] satisfies SetModelBody['effort'][])
+/** 别名或完整 id，可能带 [1m] 这类后缀 */
+const MODEL_ID = /^[\w.\-[\]]+$/
 
 /** /clear 会让子进程换会话 id（见 catalog.ts），手机上不让发 */
 const CLEARED = { error: '手机上开新会话请用标签条的 [+]' }
+
+const IMAGE_TYPES = new Set<unknown>(['image/jpeg', 'image/png', 'image/gif', 'image/webp'] satisfies ImageAttachment['mediaType'][])
+/** API 的上限：单张 base64 后 5MB；一条消息的张数自己定个数 */
+const MAX_IMAGE = 5 * 1024 * 1024
+const MAX_IMAGES = 20
+
+/** 图片不对的原因。坏图会写进 transcript，之后每一轮都报错，所以发之前先拦 */
+function badImages(images: unknown): string | undefined {
+  if (images === undefined) return
+  if (!Array.isArray(images)) return '图片格式不对'
+  if (images.length > MAX_IMAGES) return `一次最多 ${MAX_IMAGES} 张图片`
+  for (const i of images as Partial<ImageAttachment>[]) {
+    if (!IMAGE_TYPES.has(i?.mediaType)) return '只支持 JPEG、PNG、GIF、WebP 图片'
+    if (typeof i.data !== 'string' || !i.data) return '图片格式不对'
+    if (i.data.length > MAX_IMAGE) return '图片超过 5MB'
+  }
+}
 
 const api = new Hono()
 
@@ -244,15 +265,20 @@ api.get('/overview', (c) =>
   }),
 )
 api.post('/sessions', async (c) => {
-  const body = await c.req.json<CreateSessionBody>()
-  const prompt = body.prompt?.trim()
-  if (!prompt) return c.json({ error: 'prompt 不能为空' }, 400)
+  const { images, permissionMode: mode, model, effort, ...body } = await c.req.json<CreateSessionBody>()
+  const prompt = body.prompt?.trim() ?? ''
+  const bad = badImages(images)
+  if (bad) return c.json({ error: bad }, 400)
+  if (!prompt && !images?.length) return c.json({ error: 'prompt 不能为空' }, 400)
   if (CLEAR_COMMAND.test(prompt)) return c.json(CLEARED, 400)
-  if (body.permissionMode !== undefined && !MODES.has(body.permissionMode)) return c.json({ error: '权限模式不对' }, 400)
+  if (mode !== undefined && !MODES.has(mode)) return c.json({ error: '权限模式不对' }, 400)
+  if (model !== undefined && !MODEL_ID.test(model)) return c.json({ error: '模型不对' }, 400)
+  // null 是「回到默认」，开新会话时没有意义
+  if (effort !== undefined && (effort === null || !EFFORTS.has(effort))) return c.json({ error: 'effort 不对' }, 400)
   const dir = await checkDir(body.cwd, roots)
   if (!dir.ok) return c.json({ error: dir.error }, dir.status)
   try {
-    return c.json(sessions.create(dir.path, prompt, body.permissionMode).info())
+    return c.json((await sessions.create(dir.path, prompt, { images, mode, model, effort })).info())
   } catch (e) {
     return commandError(c, e)
   }
@@ -293,11 +319,27 @@ api.get('/sessions/:id/history', async (c) => {
 api.post('/sessions/:id/messages', async (c) => {
   const s = await sessions.open(c.req.param('id'))
   if (!s) return c.json(NOT_FOUND, 404)
-  const { text } = await c.req.json<SendMessageBody>()
-  if (!text?.trim()) return c.json({ error: '消息不能为空' }, 400)
+  const { text = '', images } = await c.req.json<SendMessageBody>()
+  const bad = badImages(images)
+  if (bad) return c.json({ error: bad }, 400)
+  if (!text.trim() && !images?.length) return c.json({ error: '消息不能为空' }, 400)
   if (CLEAR_COMMAND.test(text.trim())) return c.json(CLEARED, 400)
   try {
-    await sessions.send(s, text)
+    await sessions.send(s, text, images)
+  } catch (e) {
+    return commandError(c, e)
+  }
+  return c.json({ ok: true })
+})
+
+// ! 命令（终端里的 shell 模式）：开始跑就返回，输入输出经内容流到达
+api.post('/sessions/:id/bash', async (c) => {
+  const s = await sessions.open(c.req.param('id'))
+  if (!s) return c.json(NOT_FOUND, 404)
+  const { command } = await c.req.json<BashBody>()
+  if (typeof command !== 'string' || !command.trim()) return c.json({ error: '命令不能为空' }, 400)
+  try {
+    await sessions.bash(s, command.trim())
   } catch (e) {
     return commandError(c, e)
   }
@@ -334,7 +376,7 @@ api.post('/sessions/:id/model', async (c) => {
   const s = await sessions.open(c.req.param('id'))
   if (!s) return c.json(NOT_FOUND, 404)
   const body = await c.req.json<SetModelBody>()
-  if (body.model !== undefined && !/^[\w.\-[\]]+$/.test(body.model)) return c.json({ error: '模型不对' }, 400)
+  if (body.model !== undefined && !MODEL_ID.test(body.model)) return c.json({ error: '模型不对' }, 400)
   if (body.effort !== undefined && !EFFORTS.has(body.effort)) return c.json({ error: 'effort 不对' }, 400)
   try {
     await s.setModel({ model: body.model, effort: body.effort })

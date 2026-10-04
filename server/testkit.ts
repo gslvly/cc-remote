@@ -76,7 +76,7 @@ const MODELS: sdk.ModelInfo[] = [
   { value: 'haiku', resolvedModel: 'claude-haiku-4-5', displayName: 'Haiku', description: 'Haiku 4.5' },
 ]
 
-/** 假子进程：每收到一条，写进 transcript（用消息自带的 uuid），回一句 re: …。带 resumeSessionAt 的从那条接着写 */
+/** 假子进程：每收到一条，写进 transcript（用消息自带的 uuid），回一句 re: …（shouldQuery: false 的只回 0 轮的 result）。带 resumeSessionAt 的从那条接着写 */
 function fakeQuery({ prompt, options }: { prompt: AsyncIterable<sdk.SDKUserMessage>; options: sdk.Options }) {
   const id = (options.sessionId ?? options.resume)!
   const rec = { id, options, modes: [] as sdk.PermissionMode[], models: [] as (string | undefined)[], flags: [] as unknown[], rewinds: [] as string[] }
@@ -85,9 +85,18 @@ function fakeQuery({ prompt, options }: { prompt: AsyncIterable<sdk.SDKUserMessa
   if (options.resumeSessionAt) t.last = options.resumeSessionAt
   async function* gen() {
     for await (const m of prompt) {
-      t.user(m.message.content as string, { uuid: m.uuid })
+      const { content } = m.message
+      t.add('user', content, { uuid: m.uuid })
       yield { type: 'system', subtype: 'init', model: 'haiku', permissionMode: 'default', session_id: id, uuid: crypto.randomUUID() }
-      const text = `re: ${m.message.content}`
+      // 只写进对话的（! 命令）：不开始这一轮，同真 CLI 回一个 0 轮的 result
+      if (m.shouldQuery === false) {
+        yield { type: 'result', subtype: 'success', is_error: false, num_turns: 0, result: '', session_id: id, uuid: crypto.randomUUID(), user_message_uuids: [m.uuid] }
+        continue
+      }
+      // 带图片的：回 re: 文字（N 张图）
+      const said = typeof content === 'string' ? content : content.map((b) => (b.type === 'text' ? b.text : '')).join('')
+      const images = typeof content === 'string' ? 0 : content.filter((b) => b.type === 'image').length
+      const text = `re: ${said}${images ? `（${images} 张图）` : ''}`
       const uuid = t.reply(text)
       yield { type: 'assistant', uuid, session_id: id, parent_tool_use_id: null, message: { role: 'assistant', content: [{ type: 'text', text }] } }
       yield { type: 'result', subtype: 'success', is_error: false, result: text, session_id: id, uuid: crypto.randomUUID(), modelUsage: { haiku: { contextWindow: 200_000 } } }

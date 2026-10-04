@@ -1,6 +1,6 @@
 // 全部会话：新建、按 id 载入、并发上限与空闲回收、扫终端登记表、概览流
-import { getSessionInfo, type PermissionMode } from '@anthropic-ai/claude-agent-sdk'
-import type { OverviewSessions, RewindRestore } from '../shared/protocol'
+import { type EffortLevel, getSessionInfo, type PermissionMode } from '@anthropic-ai/claude-agent-sdk'
+import type { ImageAttachment, OverviewSessions, RewindRestore } from '../shared/protocol'
 import { checkDir } from './fs'
 import { ConflictError, Session } from './session'
 import { type Holder, scanHolders } from './terminal'
@@ -34,12 +34,20 @@ export class SessionManager {
     void this.scan()
   }
 
-  create(cwd: string, prompt: string, mode?: PermissionMode): Session {
+  /** 模式、模型、effort 不给就由 Claude Code 自己定 */
+  async create(
+    cwd: string,
+    prompt: string,
+    o: { images?: ImageAttachment[]; mode?: PermissionMode; model?: string; effort?: EffortLevel } = {},
+  ): Promise<Session> {
     this.makeRoom()
-    const s = new Session(crypto.randomUUID(), cwd, prompt.trim().split('\n')[0]!.slice(0, 80), this.changed, { fresh: true })
-    s.permissionMode = mode
+    const title = prompt.trim().split('\n')[0]!.slice(0, 80) || '[图片]'
+    const s = new Session(crypto.randomUUID(), cwd, title, this.changed, { fresh: true })
+    s.permissionMode = o.mode
     this.sessions.set(s.id, s)
-    s.send(prompt)
+    // 还没起子进程，只是记下，起的时候带上
+    if (o.model !== undefined || o.effort !== undefined) await s.setModel({ model: o.model, effort: o.effort })
+    s.send(prompt, o.images)
     this.changed()
     return s
   }
@@ -67,9 +75,15 @@ export class SessionManager {
   }
 
   /** 发消息。子进程被回收了、或者是历史会话，就 resume */
-  async send(s: Session, text: string) {
+  async send(s: Session, text: string, images?: ImageAttachment[]) {
     await this.prepare(s)
-    s.send(text)
+    s.send(text, images)
+  }
+
+  /** ! 命令（见 Session.bash）。跑完要把输入输出交给子进程，同发消息 */
+  async bash(s: Session, command: string) {
+    await this.prepare(s)
+    s.bash(command)
   }
 
   /** 回退（见 Session.rewind）。没有子进程时要现起一个还原文件，同发消息 */

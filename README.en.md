@@ -23,6 +23,7 @@ Keywords: `claude-code` `claude-code-remote` `remote-control` `remote-control-al
 - 📱 **Mobile-first PWA**: add it to your home screen from the browser and it becomes an app (full screen, its own icon, nothing to install). Chat stream + tool cards, token-by-token output, resumes where you left off after switching away
 - 🗂️ **Parallel sessions**: switch sessions from the top tab bar; a banner flags pending approvals in other sessions
 - ✅ **Approvals passed straight through**: permission requests (allow / allow for this session / deny), `AskUserQuestion` options, plan approval, interrupt, permission-mode switching (the terminal's `Esc` / `Shift+Tab`)
+- ⌨️ **Everyday terminal moves**: `/` commands and skills, images / screenshots, `!` shell commands, model / effort switching, rewind (double `Esc`), per-session drafts
 - 👀 **Read-only view of terminal sessions**: watch sessions running in your computer's terminal live; once the terminal exits or runs `/clear`, it becomes a history session you can keep chatting in from the phone (or `claude --resume <id>`)
 - 📊 **Status bar**: model, context usage, cache hit rate, 5h / 7d quota — same numbers as the terminal statusline
 - 🔔 **Push to phone**: when approval is needed, a turn finishes, or quota is rejected (with deep links): native PWA notifications over HTTPS, or via Bark / ntfy
@@ -320,14 +321,19 @@ Windows enable "AC Power Recovery" / "Restore on AC Power Loss" in the BIOS.
 ## Usage
 
 - **Home**: quota (5h / 7d remaining) + all sessions + recent directories / favorites / directory browser
-- **Directory page**: start a new session, or open a history session from that directory (sending a message resumes it as a managed session)
+- **Directory page**: start a new session (images allowed; optionally pick model / effort / permission mode first, otherwise your local settings apply), or open a history session from that directory (sending a message resumes it as a managed session)
 - **Session page**: the tab bar switches between sessions open on the phone in the current directory (new or resumed; ● running / ◐ awaiting approval / ○ idle, `[+]` new).
   Terminal sessions and history sessions opened only for viewing stay out of the tab bar (reach them from Home or the directory page); history sessions are marked in the header, and sending a message resumes them and adds them to the tab bar.
   Assistant text streams in token by token, thinking is collapsed, Bash / file edits / searches are folded into tool cards,
   Todo progress shows as a top progress bar; bottom sheets handle permission requests and questions, and plans (ExitPlanMode) can be approved with an option to switch to acceptEdits at the same time
 - **Input box**: typing `/` pops up the commands and skills list (as reported by Claude Code, minus the ones that don't work on the phone; output of commands like `/context` and `/usage` shows up as usual);
   `/clear` can't be sent — use `[+]` for a new session; unsent drafts are kept per session
-- **Model / effort**: tap the model in the header; applies to this session only (like `/model` and `/effort` in the terminal) and carries over when the session is resumed
+- **Images** (like Ctrl+V in the terminal): pick images with the button next to the input box, or paste a screenshot on desktop;
+  images whose long edge exceeds 1568px, that exceed the API's per-image limit, or that aren't JPEG / PNG / GIF / WebP are scaled down proportionally and converted to JPEG — the rest are sent as-is, never upscaled
+- **`!` commands** (like shell mode in the terminal): input starting with `!` runs directly in the session's directory, without going through Claude; the output is recorded in the conversation and Claude sees it with your next message.
+  2-minute time limit, the first 30,000 characters of each output are kept, and the stop button kills a running command; there's no terminal, so anything that asks for a password (`sudo` and the like) can't run
+- **Model / effort / permission mode**: tap the model in the header; applies to this session only (like `/model`, `/effort` and `Shift+Tab` in the terminal) and carries over when the session is resumed;
+  a non-default permission mode shows in its color in the header, and the input box is outlined in the same color
 - **Rewind** (like pressing Esc twice in the terminal): when idle, tap one of your messages → "Rewind to here"; it previews the files to restore, then you pick code and conversation, conversation only, or code only.
   When the conversation is rewound, the message text returns to the input box. Only files Claude changed with Write / Edit are restored (not Bash); the conversation can't go back past the first message, but code can
 - **Terminal sessions**: read-only, refreshed per complete message; once the terminal exits or `/clear` starts a new session, the input box appears and sending a message resumes it

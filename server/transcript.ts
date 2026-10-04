@@ -71,28 +71,37 @@ function toEvent(m: Raw): SessionEvent | undefined {
   const blocks: Block[] = typeof content === 'string' ? [{ type: 'text', text: content }] : Array.isArray(content) ? content : []
   if (blocks.some((b) => b.type === 'tool_result')) return sdk()
   const text = blocks
-    .map((b) => (b.type === 'text' ? String(b.text) : b.type === 'image' ? '[图片]' : ''))
-    .filter(Boolean)
+    .filter((b) => b.type === 'text')
+    .map((b) => String(b.text))
     .join('\n')
-  if (!text.trim() || text.startsWith('<local-command-caveat>') || text.startsWith('<system-reminder>')) return
+  const images = blocks.filter((b) => b.type === 'image').length
+  if (images) return { type: 'user_input', text, uuid: m.uuid, images }
   if (text.startsWith('[Request interrupted')) return sdk()
+  return fromUserText(text, m.uuid)
+}
 
-  // 终端里的斜杠命令、! 命令、本地命令的输出、后台任务通知：CLI 用标签包起来写进 transcript
+/**
+ * 一条纯文字的用户消息转成事件。终端里的斜杠命令、! 命令、本地命令的输出、后台任务通知：CLI 用标签包起来写进 transcript。
+ * 手机上的 ! 命令也照这个格式写，缓冲里的事件用它转，与 transcript 读出来的一样
+ */
+export function fromUserText(text: string, uuid: string): SessionEvent | undefined {
+  if (!text.trim() || text.startsWith('<local-command-caveat>') || text.startsWith('<system-reminder>')) return
   const cmd = tag(text, 'command-name')
   if (cmd !== undefined) {
     const args = tag(text, 'command-args')?.trim()
-    return { type: 'user_input', text: args ? `${cmd} ${args}` : cmd, uuid: m.uuid }
+    return { type: 'user_input', text: args ? `${cmd} ${args}` : cmd, uuid }
   }
   const bash = tag(text, 'bash-input')
-  if (bash !== undefined) return { type: 'user_input', text: `! ${bash}`, uuid: m.uuid }
+  if (bash !== undefined) return { type: 'user_input', text: `! ${bash}`, uuid }
   const out = [tag(text, 'local-command-stdout'), tag(text, 'bash-stdout'), tag(text, 'bash-stderr')]
   if (out.some((o) => o !== undefined)) {
-    const s = out.filter(Boolean).join('\n').replace(ANSI, '').trim()
-    return s ? { type: 'note', text: s } : undefined
+    // 首行的缩进留着（git status -s 这类）
+    const s = out.filter(Boolean).join('\n').replace(ANSI, '').replace(/^\s*\n/, '').trimEnd()
+    return s ? { type: 'note', text: s, mono: true } : undefined
   }
   if (text.startsWith('<task-notification>')) {
     const summary = tag(text, 'summary')
     return summary ? { type: 'note', text: `后台任务：${summary.trim()}` } : undefined
   }
-  return { type: 'user_input', text, uuid: m.uuid }
+  return { type: 'user_input', text, uuid }
 }

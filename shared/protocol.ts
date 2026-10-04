@@ -83,13 +83,14 @@ export interface PermissionRequest {
 /** 进入会话缓冲、可重放的事件 */
 export type SessionEvent =
   /** uuid 就是这条消息在 transcript 里的 uuid（发给 SDK 时指定），与 transcript 对齐时靠它 */
-  | { type: 'user_input'; text: string; uuid?: string }
+  /** images 是带了几张图片（图片本身不进缓冲） */
+  | { type: 'user_input'; text: string; uuid?: string; images?: number }
   | { type: 'sdk'; msg: SDKMessage }
   | { type: 'permission_request'; req: PermissionRequest }
   | { type: 'permission_resolved'; id: string; behavior: 'allow' | 'deny' | 'cancelled' }
   | { type: 'error'; message: string }
-  /** 灰色提示：本地命令的输出、对话已压缩等（transcript 里读出来的） */
-  | { type: 'note'; text: string }
+  /** 灰色提示：本地命令的输出、对话已压缩等（transcript 里读出来的）。mono：命令的输出，按终端排版 */
+  | { type: 'note'; text: string; mono?: boolean }
 
 export interface EventEnvelope {
   seq: number
@@ -209,15 +210,35 @@ export interface WebPushSubscription {
   keys: { p256dh: string; auth: string }
 }
 
+/** 有图片时 prompt 可以为空 */
 export interface CreateSessionBody {
   cwd: string
   prompt: string
-  /** 不给就由 Claude Code 自己定（SDK 会话里是 default） */
+  images?: ImageAttachment[]
+  /** 以下不给就由 Claude Code 自己定（SDK 会话里模式是 default） */
   permissionMode?: SwitchableMode
+  model?: string
+  effort?: EffortLevel
 }
 
+/** 随消息发的图片：API 认的格式，data 是 base64（不带 data: 前缀），单张不超过 5MB */
+export interface ImageAttachment {
+  mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
+  data: string
+}
+
+/** 有图片时 text 可以为空 */
 export interface SendMessageBody {
   text: string
+  images?: ImageAttachment[]
+}
+
+/**
+ * POST /api/sessions/:id/bash：! 命令（终端里的 shell 模式），会话空闲时才行。开始跑就返回，输入、输出经内容流到达；
+ * 跑的时候状态是 running，中断就停掉命令。输入输出记进对话但不开始这一轮，下次发消息时 Claude 一起看到
+ */
+export interface BashBody {
+  command: string
 }
 
 /** POST /api/sessions/:id/mode：子进程被回收了就记下，下次起子进程时带上 */

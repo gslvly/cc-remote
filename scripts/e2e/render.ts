@@ -40,7 +40,9 @@ await run(
     // ── 1. 目录页选 plan 模式开会话 ──
     await page.evaluate((d) => (location.hash = `#/dir?path=${encodeURIComponent(d)}`), dir)
     await page.waitForSelector('text=历史会话')
-    await page.selectOption('select[aria-label="权限模式"]', 'plan')
+    await page.getByRole('button', { name: '模型和权限模式' }).click()
+    await page.locator('[role="group"][aria-label="权限模式"] button', { hasText: '规划' }).click()
+    await page.getByRole('button', { name: '完成' }).click()
     await page.fill('textarea', [
       'greet.txt currently contains "hello". Without reading any files first, use the AskUserQuestion tool exactly once, with two questions:',
       '(1) header "Greeting", question "Which greeting should greet.txt use?", multiSelect false, options "hi" and "hey";',
@@ -96,10 +98,12 @@ await run(
     const modes = evs.filter((e: any) => e.type === 'sdk' && e.msg.type === 'system' && e.msg.permissionMode).map((e: any) => `${e.msg.subtype}:${e.msg.permissionMode}`)
     console.log(`  [实测] 带 permissionMode 的 system 消息：${modes.join(' ')}`)
 
-    // ── 4. 输入框左边切模式 ──
-    await page.selectOption('select[aria-label="权限模式"]', 'default')
+    // ── 4. 页头点模型，弹层里切模式 ──
+    await page.locator('header p button').first().click()
+    await page.locator('[role="group"][aria-label="权限模式"] button', { hasText: '默认' }).click()
     await until('切到默认模式', async () => (await api(`/sessions/${id}`)).permissionMode === 'default', 10_000)
-    check(true, '输入框左边切模式生效')
+    await page.getByRole('button', { name: '完成' }).click()
+    check(true, '弹层里切模式生效')
 
     // ── 5. 一般审批：拒绝时附一句话，Claude 照着接着做（不中断）──
     let n = await footers(page)

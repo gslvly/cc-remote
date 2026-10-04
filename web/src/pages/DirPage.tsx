@@ -17,19 +17,22 @@ import type {
   DirInfo,
   DirSession,
   DirSessions,
+  EffortLevel,
   FavoriteBody,
   SessionInfo,
   SwitchableMode,
 } from '../../../shared/protocol'
 import { api, cachedGet } from '../api'
 import { CommandMenu, slashQuery } from '../components/CommandMenu'
-import { ModeSelect } from '../components/ModeSelect'
+import { attachments, createImages, ImageButton, ImageStrip } from '../components/Images'
+import { ModelSheet } from '../components/ModelSheet'
 import { loadDraft, saveDraft } from '../draft'
 import { StateBadge } from '../components/StateBadge'
-import { ago, basename, errorText, shortPath } from '../format'
+import { ago, basename, errorText, MODE_BORDER, MODE_LABEL, MODE_TEXT, shortPath } from '../format'
 import { afterPaint } from '../frame'
 import { useOverview } from '../overview'
 import { go } from '../router'
+import { modelName } from '../status'
 
 /** 目录页：在这个目录开新会话，或者打开它的历史会话（终端里开的也在） */
 export function DirPage(props: { path: string }) {
@@ -44,10 +47,14 @@ export function DirPage(props: { path: string }) {
     saveDraft(draftKey, t)
   }
   const slash = () => slashQuery(prompt())
-  /** 不选就不传，由 Claude Code 自己定 */
+  /** 模式、模型（列表项的 value）、effort：不选就不传，由 Claude Code 自己定 */
   const [mode, setMode] = createSignal<SwitchableMode>()
+  const [model, setModel] = createSignal<string>()
+  const [effort, setEffort] = createSignal<EffortLevel>()
+  const [picking, setPicking] = createSignal(false)
   const [error, setError] = createSignal('')
   const [busy, setBusy] = createSignal(false)
+  const images = createImages(setError)
   let input!: HTMLTextAreaElement
 
   // focus 会带出滚动，等整页画出来再做，见 afterPaint
@@ -72,7 +79,14 @@ export function DirPage(props: { path: string }) {
     setBusy(true)
     setError('')
     try {
-      const body: CreateSessionBody = { cwd: info().path, prompt: prompt(), permissionMode: mode() }
+      const body: CreateSessionBody = {
+        cwd: info().path,
+        prompt: prompt(),
+        images: attachments(images.list()),
+        permissionMode: mode(),
+        model: model(),
+        effort: effort(),
+      }
       const s = await api<SessionInfo>('/sessions', body)
       setPrompt('')
       go.session(s.id)
@@ -82,10 +96,25 @@ export function DirPage(props: { path: string }) {
     }
   }
 
-  // 目录还没取到时画个禁用的占着位置
+  /** 选了的才显示，如 Sonnet · low · 规划 */
+  const choice = () => [model() && modelName(model()!), effort(), mode() && MODE_LABEL[mode()!]].filter(Boolean).join(' · ')
+  const choiceColor = () => {
+    const m = mode()
+    return (m && MODE_TEXT[m] && `${MODE_BORDER[m]} ${MODE_TEXT[m]}`) || `border-neutral-700 ${choice() ? 'text-neutral-200' : 'text-neutral-500'}`
+  }
+
+  // 目录还没取到时画个禁用的占着位置（选图、选模型照样能用）
   const startRow = (disabled: () => boolean) => (
     <div class="flex gap-3">
-      <ModeSelect value={mode()} unset="模式：本机默认" unsetSelectable onChange={setMode} class="shrink-0" />
+      {/* 图标左边对齐输入框 */}
+      <ImageButton images={images} class="-ml-2 w-10" />
+      <button
+        onClick={() => setPicking(true)}
+        aria-label="模型和权限模式"
+        class={`max-w-[55%] min-w-0 truncate rounded-full border bg-neutral-900 px-3 text-sm ${choiceColor()}`}
+      >
+        {choice() || '模型 · 模式'}
+      </button>
       <button
         onClick={start}
         disabled={disabled()}
@@ -115,10 +144,12 @@ export function DirPage(props: { path: string }) {
           ref={input}
           value={prompt()}
           onInput={(e) => setPrompt(e.currentTarget.value)}
+          onPaste={images.paste}
           placeholder="让 Claude 做什么？"
           rows={4}
           class="resize-none rounded-xl border border-neutral-700 bg-neutral-900 px-3 py-2.5 text-base outline-none focus:border-neutral-500"
         />
+        <ImageStrip images={images} class="-mt-2" />
         {/* 用 props.path 取命令列表：目录不在 roots 内时服务端报错，列表里显示 */}
         <Show when={slash() !== undefined}>
           <CommandMenu
@@ -135,10 +166,23 @@ export function DirPage(props: { path: string }) {
         </Show>
         <Loading fallback={startRow(() => true)}>
           {/* isPending 顺带读了 info：没取到时 Loading 等它 */}
-          {startRow(() => isPending(() => info()) || !prompt().trim() || busy())}
+          {startRow(() => isPending(() => info()) || (!prompt().trim() && !images.list().length) || images.pending() || busy())}
           <History path={props.path} branch={info().branch} />
         </Loading>
       </Errored>
+      <Show when={picking()}>
+        <ModelSheet
+          cwd={props.path}
+          draft
+          model={model()}
+          effort={effort()}
+          mode={mode()}
+          onModel={(v) => setModel(v)}
+          onEffort={(v) => setEffort(v)}
+          onMode={(v) => setMode(v)}
+          onClose={() => setPicking(false)}
+        />
+      </Show>
     </div>
   )
 }
