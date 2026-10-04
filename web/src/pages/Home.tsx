@@ -2,6 +2,7 @@ import { createMemo, createSignal, type Element, Errored, For, Loading, Match, S
 import type { DirEntry, RecentDir } from '../../../shared/protocol'
 import { cachedGet } from '../api'
 import { DirBrowser } from '../components/DirBrowser'
+import { PushToggle } from '../components/PushToggle'
 import { StateBadge } from '../components/StateBadge'
 import { QuotaText } from '../components/StatusLine'
 import { ago, basename, errorText, shortPath } from '../format'
@@ -53,7 +54,10 @@ export function Home() {
   return (
     <div class="mx-auto max-w-2xl px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))]">
       <div class="mb-4 flex items-center justify-between gap-3">
-        <h1 class="text-lg font-semibold">cc-remote</h1>
+        <div class="flex items-center gap-2">
+          <h1 class="text-lg font-semibold">cc-remote</h1>
+          <PushToggle />
+        </div>
         <div aria-label="额度" class="flex gap-x-4 text-xs tabular-nums">
           <QuotaText quota={quota()} />
         </div>

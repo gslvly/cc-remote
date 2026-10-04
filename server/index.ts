@@ -12,13 +12,17 @@ import type {
   FsList,
   PermissionDecisionBody,
   RecentDir,
+  RewindBody,
+  RewindRestore,
   SendMessageBody,
   SetModeBody,
+  SetModelBody,
   StreamHello,
   SwitchableMode,
 } from '../shared/protocol'
+import { catalog, CLEAR_COMMAND } from './catalog'
 import { createAuth } from './auth'
-import { CONFIG_FILE, loadConfig, localIPv4s, resolveRoots, waitForHost } from './config'
+import { CONFIG_DIR, CONFIG_FILE, loadConfig, localIPv4s, resolveRoots, waitForHost } from './config'
 import { Favorites } from './favorites'
 import { checkDir, dirEntry, gitBranch, listDirs, within } from './fs'
 import { LimitError, SessionManager } from './manager'
@@ -26,6 +30,7 @@ import { pusher } from './push'
 import { ConflictError, type EventId } from './session'
 import { isEmpty, titleOf } from './transcript'
 import { quota } from './usage'
+import { validSubscription, WebPush } from './webpush'
 
 // 输出到文件时（后台服务、e2e）每行带上时间
 if (!process.stdout.isTTY) {
@@ -40,6 +45,7 @@ const auth = createAuth(config.token)
 const roots = resolveRoots(config.roots)
 const sessions = new SessionManager({ maxLive: config.maxLive, idleMinutes: config.idleMinutes, roots })
 const favorites = new Favorites()
+const webPush = new WebPush(join(CONFIG_DIR, 'webpush.json'))
 const DIST = join(import.meta.dir, '../web/dist')
 
 const isDir = (p: string) => {
@@ -94,6 +100,11 @@ const commandError = (c: Context, e: unknown) => {
 const NOT_FOUND = { error: '会话不存在' }
 
 const MODES = new Set<unknown>(['default', 'acceptEdits', 'plan'] satisfies SwitchableMode[])
+const RESTORES = new Set<unknown>(['both', 'conversation', 'code'] satisfies RewindRestore[])
+const EFFORTS = new Set<unknown>(['low', 'medium', 'high', 'xhigh', 'max', null] satisfies SetModelBody['effort'][])
+
+/** /clear 会让子进程换会话 id（见 catalog.ts），手机上不让发 */
+const CLEARED = { error: '手机上开新会话请用标签条的 [+]' }
 
 const api = new Hono()
 
@@ -199,6 +210,20 @@ api.post('/favorites', async (c) => {
   return c.json({ favorite: true })
 })
 
+// 网页推送：页面在 HTTPS 下、用户点了开启才来订阅（见 web/src/notify.ts）
+api.get('/push/key', (c) => c.json({ key: webPush.publicKey }))
+api.post('/push/subscribe', async (c) => {
+  const sub = await c.req.json()
+  if (!validSubscription(sub)) return c.json({ error: '订阅格式不对' }, 400)
+  webPush.add(sub)
+  return c.json({ ok: true })
+})
+api.post('/push/unsubscribe', async (c) => {
+  const { endpoint } = await c.req.json<{ endpoint?: unknown }>()
+  webPush.remove(String(endpoint))
+  return c.json({ ok: true })
+})
+
 api.get('/sessions', (c) => c.json(sessions.list()))
 
 // 概览流：全部会话的状态，手机在前台时一直连着（驱动标签条、跨会话的待批准横幅），以及额度。有它连着就不推送
@@ -222,6 +247,7 @@ api.post('/sessions', async (c) => {
   const body = await c.req.json<CreateSessionBody>()
   const prompt = body.prompt?.trim()
   if (!prompt) return c.json({ error: 'prompt 不能为空' }, 400)
+  if (CLEAR_COMMAND.test(prompt)) return c.json(CLEARED, 400)
   if (body.permissionMode !== undefined && !MODES.has(body.permissionMode)) return c.json({ error: '权限模式不对' }, 400)
   const dir = await checkDir(body.cwd, roots)
   if (!dir.ok) return c.json({ error: dir.error }, dir.status)
@@ -269,6 +295,7 @@ api.post('/sessions/:id/messages', async (c) => {
   if (!s) return c.json(NOT_FOUND, 404)
   const { text } = await c.req.json<SendMessageBody>()
   if (!text?.trim()) return c.json({ error: '消息不能为空' }, 400)
+  if (CLEAR_COMMAND.test(text.trim())) return c.json(CLEARED, 400)
   try {
     await sessions.send(s, text)
   } catch (e) {
@@ -302,6 +329,33 @@ api.post('/sessions/:id/mode', async (c) => {
   return c.json(s.info())
 })
 
+// 切模型、effort（终端里的 /model、/effort）；同 mode，历史会话也能先切好
+api.post('/sessions/:id/model', async (c) => {
+  const s = await sessions.open(c.req.param('id'))
+  if (!s) return c.json(NOT_FOUND, 404)
+  const body = await c.req.json<SetModelBody>()
+  if (body.model !== undefined && !/^[\w.\-[\]]+$/.test(body.model)) return c.json({ error: '模型不对' }, 400)
+  if (body.effort !== undefined && !EFFORTS.has(body.effort)) return c.json({ error: 'effort 不对' }, 400)
+  try {
+    await s.setModel({ model: body.model, effort: body.effort })
+  } catch (e) {
+    if (e instanceof ConflictError) return commandError(c, e)
+    return c.json({ error: e instanceof Error ? e.message : String(e) }, 500)
+  }
+  return c.json(s.info())
+})
+
+// 输入框里打 / 时的命令列表、切模型的列表。这个目录没有活着的子进程时要现起一个问，第一次慢一两秒
+api.get('/catalog', async (c) => {
+  const dir = await checkDir(c.req.query('cwd'), roots)
+  if (!dir.ok) return c.json({ error: dir.error }, dir.status)
+  try {
+    return c.json(await catalog(dir.path))
+  } catch (e) {
+    return c.json({ error: `取命令列表失败：${e instanceof Error ? e.message : String(e)}` }, 500)
+  }
+})
+
 api.post('/sessions/:id/interrupt', async (c) => {
   const s = sessions.get(c.req.param('id'))
   if (!s) return c.json(NOT_FOUND, 404)
@@ -311,6 +365,21 @@ api.post('/sessions/:id/interrupt', async (c) => {
     return c.json({ error: e instanceof Error ? e.message : String(e) }, 500)
   }
   return c.json({ ok: true })
+})
+
+// 回退到某条用户消息之前（终端里按两下 Esc），代码、对话可以只回退一样；dryRun 先预览
+api.post('/sessions/:id/rewind', async (c) => {
+  const s = await sessions.open(c.req.param('id'))
+  if (!s) return c.json(NOT_FOUND, 404)
+  const { uuid, restore = 'both', dryRun } = await c.req.json<RewindBody>()
+  if (typeof uuid !== 'string' || !uuid) return c.json({ error: '要回退到哪条消息' }, 400)
+  if (!RESTORES.has(restore)) return c.json({ error: '回退哪样不对' }, 400)
+  try {
+    return c.json(await sessions.rewind(s, uuid, restore, !!dryRun))
+  } catch (e) {
+    if (e instanceof ConflictError || e instanceof LimitError) return commandError(c, e)
+    return c.json({ error: `回退失败：${e instanceof Error ? e.message : String(e)}` }, 500)
+  }
 })
 
 // 关掉会话：停子进程、出标签条；不在内存里的本来就是关着的。终端里正跑着的归终端管
@@ -358,9 +427,9 @@ console.log(`[cc-remote] roots：${roots.join('、') || '（无）'}`)
 console.log(`[cc-remote] 并发上限 ${config.maxLive}，空闲 ${config.idleMinutes} 分钟回收子进程`)
 // 听所有网卡时取第一个网卡地址，不对就在配置里写 publicUrl
 const publicUrl = config.publicUrl || urls[0] || `http://127.0.0.1:${server.port}`
-pusher.configure(config.push, publicUrl)
+pusher.configure(config.push, publicUrl, webPush)
 const targets = Object.keys(config.push ?? {})
-console.log(`[cc-remote] 推送：${targets.length ? `${targets.join('、')}，深链接 ${publicUrl}/#/s/<id>` : '没配'}`)
+console.log(`[cc-remote] 推送：${targets.length ? `${targets.join('、')}，深链接 ${publicUrl}/#/s/<id>` : '没配'}；网页推送 ${webPush.count} 台设备`)
 if (created) console.log(`[cc-remote] 已生成配置 ${CONFIG_FILE}\n[cc-remote] 登录 token：${config.token}`)
 else console.log(`[cc-remote] 登录 token 见 ${CONFIG_FILE}`)
 // 防睡眠、开机自启都由用户按自己的系统配，服务端不管

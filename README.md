@@ -20,7 +20,7 @@ Claude Code 会话：流式输出、工具卡片、权限审批、问答、计�
 - ✅ **审批原样回传**：权限请求（允许 / 本会话允许 / 拒绝）、`AskUserQuestion` 选项、计划批准、中断、权限模式切换（对应终端 `Esc` / `Shift+Tab`）
 - 👀 **终端会话只读旁观**：电脑终端里正在跑的会话，手机上实时看进度；终端退出或 `/clear` 后它就是历史会话，手机上直接接着聊（`claude --resume <id>` 亦可）
 - 📊 **状态栏**：模型、上下文用量、缓存命中率、5h / 7d 额度，与终端 statusline 同口径
-- 🔔 **推送到手机**：待批准、一轮结束、额度被拒时经 Bark / ntfy 推送（含深链接）
+- 🔔 **推送到手机**：待批准、一轮结束、额度被拒时推送（含深链接）：HTTPS 下 PWA 自己弹系统通知，也可经 Bark / ntfy
 - 🔑 **不挑认证方式**：终端里的 `claude` 能用什么它就用什么——订阅登录、API key、`ANTHROPIC_BASE_URL` 中转 / 兼容接口、Bedrock 等云厂商通道
 - 🔒 **手机不连 Anthropic**：手机只连你自己的电脑（局域网或自选组网），不装 Claude App、不登 Claude 账号；token 登录（httpOnly cookie），等同远程 shell 的安全级别
 - 🪶 **轻量**：Bun + Hono 服务端，Solid 前端（gzip 后约 40KB），不重做 Claude Code 的任何能力——只做渲染与转发
@@ -61,8 +61,8 @@ cc-remote 的流量是这样走的：
 - 手机只连你自己的电脑，不连 Anthropic，也不登录 Claude 账号，手机上不用开代理
 - 跟 Anthropic 打交道的只有电脑上的 `claude`，出口就是电脑代理的那一个，和平时在终端里用完全一样
   （作为后台服务跑时，代理要写进服务配置，见「开机自启」）
-- cc-remote 服务端自己不请求 Anthropic（额度、上下文等都取自 `claude` 的响应），除了可选的 Bark / ntfy
-  推送不连任何外部服务；会话记录只在本机 `~/.claude` 里
+- cc-remote 服务端自己不请求 Anthropic（额度、上下文等都取自 `claude` 的响应），除了可选的推送（Bark / ntfy，
+  或开了系统通知的设备对应的浏览器推送服务）不连任何外部服务；会话记录只在本机 `~/.claude` 里
 - 组网工具本身要打洞：它的协调 / 中继服务器能看到你设备的公网 IP（看到的是组网服务商，不是 Anthropic）。
   介意的话只在局域网用，或者自建 Headscale / WireGuard
 
@@ -135,6 +135,9 @@ Bark / ntfy 配一个即可，也可都配；不配就不推送。`server` 不�
      **在里面再用 token 登录一次**（主屏 App 与 Safari 不共享 cookie）
    - **Android**：用 Chrome 打开 → 右上角菜单 →「添加到主屏幕」或「安装应用」
 3. 推送：Bark 填 key，ntfy 订阅你配的 topic；点推送里的链接直达对应会话
+4. 系统通知（可选，要 HTTPS 访问，见「安全」；iOS 要 16.4+ 且从主屏图标打开）：首页标题旁点「开启通知」并允许，
+   之后待批准、一轮结束由系统直接弹出，点开回到 PWA 的对应会话，不用另装 App。纯 `http://<IP>` 访问时没有这个开关，
+   提醒照旧靠应用内的横幅和审批弹层
 
 添加到主屏后：
 
@@ -297,6 +300,11 @@ macOS 执行 `sudo pmset -a autorestart 1`；Linux / Windows 在 BIOS 里打开�
   终端会话、只打开看的历史会话不进标签条（从首页、目录页进），历史会话页头标「历史」，发消息即续接并进标签条；
   assistant 文本展开逐字蹦出，thinking 折叠，Bash / 文件改动 / 搜索等收纳为工具卡片，
   Todo 进度走顶部进度条；底部弹层处理权限请求与提问，计划（ExitPlanMode）可批准并可选同时切 acceptEdits
+- **输入框**：打 `/` 弹出命令和 skill 列表（Claude Code 自己给的，滤掉了手机上用不了的；`/context`、`/usage` 这类的输出照常显示）；
+  `/clear` 不能发，开新会话用 `[+]`；没发出去的草稿按会话留着
+- **切模型 / effort**：点页头的模型那段，只对本会话（同终端的 `/model`、`/effort`），子进程回收后续接也接着用
+- **回退**（同终端里按两下 Esc）：空闲时点自己发的某条消息 →「回退到这里」，先预览要还原的文件，再选代码和对话都回退、只回退对话、只还原代码；
+  回退了对话的，原文放回输入框。只还原 Claude 用 Write / Edit 改的文件（Bash 改的不算）；对话回不到第一条之前，代码可以
 - **终端会话**：只读旁观、按整条消息刷新；终端退出或 `/clear` 换了新会话后，输入框直接出现，发消息即 resume
 - **状态栏**：`目录 · 模型 · effort` + 上下文 / 缓存 / 5h / 7d 四格，阈值变色，倒计时实时走；
   数据全部取自 Claude Code 自己上报（最近一次响应的 usage、rate_limit_event），不另发请求
@@ -315,7 +323,7 @@ macOS 执行 `sudo pmset -a autorestart 1`；Linux / Windows 在 BIOS 里打开�
   ├─ 托管会话 ×N：Agent SDK query()，每会话一个 claude 子进程 + 输出缓冲
   ├─ 终端会话旁观：读 ~/.claude/sessions 登记表 + 监听 transcript 追加
   ├─ 读 ~/.claude/projects（历史会话、最近目录）
-  └─ 推送（可选）：Bark / ntfy
+  └─ 推送（可选）：Bark / ntfy / 网页推送（Web Push）
 ```
 
 关键决策：Agent SDK（结构化消息做卡片渲染、权限走 `canUseTool` 回调，不用 PTY）；

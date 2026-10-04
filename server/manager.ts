@@ -1,6 +1,6 @@
 // 全部会话：新建、按 id 载入、并发上限与空闲回收、扫终端登记表、概览流
 import { getSessionInfo, type PermissionMode } from '@anthropic-ai/claude-agent-sdk'
-import type { OverviewSessions } from '../shared/protocol'
+import type { OverviewSessions, RewindRestore } from '../shared/protocol'
 import { checkDir } from './fs'
 import { ConflictError, Session } from './session'
 import { type Holder, scanHolders } from './terminal'
@@ -66,15 +66,25 @@ export class SessionManager {
     return s
   }
 
-  /** 发消息。子进程被回收了、或者是历史会话，就 resume：先确认终端没占着，把 transcript 里新写的补上 */
+  /** 发消息。子进程被回收了、或者是历史会话，就 resume */
   async send(s: Session, text: string) {
-    if (!s.live) {
-      await this.scan()
-      if (s.terminal === 'running') throw new ConflictError('这个会话正在终端里运行，只能旁观')
-      await s.sync()
-      if (!s.live) this.makeRoom()
-    }
+    await this.prepare(s)
     s.send(text)
+  }
+
+  /** 回退（见 Session.rewind）。没有子进程时要现起一个还原文件，同发消息 */
+  async rewind(s: Session, uuid: string, restore: RewindRestore, dryRun: boolean) {
+    await this.prepare(s)
+    return s.rewind(uuid, restore, dryRun)
+  }
+
+  /** 要起子进程之前：先确认终端没占着，把 transcript 里新写的补上，到并发上限就腾个位置 */
+  private async prepare(s: Session) {
+    if (s.live) return
+    await this.scan()
+    if (s.terminal === 'running') throw new ConflictError('这个会话正在终端里运行，只能旁观')
+    await s.sync()
+    if (!s.live) this.makeRoom()
   }
 
   /** 概览流：托管的会话和终端里正在跑的，按最后活动时间倒序 */

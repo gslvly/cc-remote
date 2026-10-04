@@ -22,7 +22,9 @@ import type {
   SwitchableMode,
 } from '../../../shared/protocol'
 import { api, cachedGet } from '../api'
+import { CommandMenu, slashQuery } from '../components/CommandMenu'
 import { ModeSelect } from '../components/ModeSelect'
+import { loadDraft, saveDraft } from '../draft'
 import { StateBadge } from '../components/StateBadge'
 import { ago, basename, errorText, shortPath } from '../format'
 import { afterPaint } from '../frame'
@@ -35,7 +37,13 @@ export function DirPage(props: { path: string }) {
   // 换目录时整页重建（App 里 keyed），path 只取一次
   const info = cachedGet<DirInfo>(`/dir?path=${encodeURIComponent(untrack(() => props.path))}`)
   const [favorite, setFavorite] = createOptimistic(() => info().favorite)
-  const [prompt, setPrompt] = createSignal('')
+  const draftKey = `dir:${untrack(() => props.path)}`
+  const [prompt, setPromptRaw] = createSignal(loadDraft(draftKey))
+  const setPrompt = (t: string) => {
+    setPromptRaw(t)
+    saveDraft(draftKey, t)
+  }
+  const slash = () => slashQuery(prompt())
   /** 不选就不传，由 Claude Code 自己定 */
   const [mode, setMode] = createSignal<SwitchableMode>()
   const [error, setError] = createSignal('')
@@ -66,6 +74,7 @@ export function DirPage(props: { path: string }) {
     try {
       const body: CreateSessionBody = { cwd: info().path, prompt: prompt(), permissionMode: mode() }
       const s = await api<SessionInfo>('/sessions', body)
+      setPrompt('')
       go.session(s.id)
     } catch (e) {
       setError(errorText(e))
@@ -110,6 +119,17 @@ export function DirPage(props: { path: string }) {
           rows={4}
           class="resize-none rounded-xl border border-neutral-700 bg-neutral-900 px-3 py-2.5 text-base outline-none focus:border-neutral-500"
         />
+        {/* 用 props.path 取命令列表：目录不在 roots 内时服务端报错，列表里显示 */}
+        <Show when={slash() !== undefined}>
+          <CommandMenu
+            cwd={props.path}
+            query={slash() ?? ''}
+            onPick={(name) => {
+              setPrompt(`/${name} `)
+              input.focus()
+            }}
+          />
+        </Show>
         <Show when={error()}>
           <p class="text-sm text-red-400">{error()}</p>
         </Show>

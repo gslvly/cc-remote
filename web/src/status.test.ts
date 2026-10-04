@@ -31,9 +31,11 @@ describe('状态栏数据', () => {
     expect(ctxParts(u, undefined)).toEqual({ pct: undefined, k: 450 })
   })
 
-  test('缓存：命中率向下取整，倒计时按分钟、不到一分钟按秒，过期了没有', () => {
+  test('缓存：命中率向下取到一位小数，倒计时按分钟、不到一分钟按秒，过期了没有', () => {
     const u = { input: 2, cacheCreation: 18, cacheRead: 980, at: NOW - 8 * 60 * 1000, ttl: 3600 }
     expect(cacheParts(u, NOW)).toEqual({ hit: 98, left: '52m' })
+    expect(cacheParts({ ...u, cacheCreation: 4518, cacheRead: 445_480 }, NOW)?.hit).toBe(98.9)
+    expect(cacheParts({ ...u, cacheCreation: 0, cacheRead: 9998 }, NOW)?.hit).toBe(99.9)
     expect(cacheParts({ ...u, ttl: 300, at: NOW - 250_000 }, NOW)?.left).toBe('50s')
     expect(cacheParts({ ...u, ttl: 300 }, NOW)?.left).toBeUndefined()
     expect(cacheParts(undefined, NOW)).toBeUndefined()

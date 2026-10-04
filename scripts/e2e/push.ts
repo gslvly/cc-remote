@@ -28,7 +28,8 @@ await run(
   async ({ page }) => {
     const dir = testDir('push')
     // ── 1. 前台 ──
-    const s = await api('/sessions', { cwd: dir, prompt: 'Reply with just: ok' })
+    // 指定 default：不指定就跟随配置的 defaultMode，配成 bypassPermissions 时 Bash 不会来要批准
+    const s = await api('/sessions', { cwd: dir, prompt: 'Reply with just: ok', permissionMode: 'default' })
     const stream = events(s.id)
     await idle(s.id)
     await sleep(1000)

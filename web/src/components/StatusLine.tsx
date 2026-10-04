@@ -57,7 +57,7 @@ export function StatusLine(props: { info: SessionInfo; quota: Quota | null }) {
       <Show when={cache()} fallback={<Metric label="缓存" value="--" />}>
         {/* 命中率低：这次大量重算，偏贵；过期了：下一条消息要重新写缓存 */}
         {(c) => (
-          <Metric label="缓存" value={`${c().hit}%`} tone={c().hit <= 50 ? WARN : ''} sub={c().left ?? '已过期'} subTone={c().left ? '' : WARN} />
+          <Metric label="缓存" value={`${c().hit.toFixed(1)}%`} tone={c().hit <= 50 ? WARN : ''} sub={c().left ?? '已过期'} subTone={c().left ? '' : WARN} />
         )}
       </Show>
       <QuotaText quota={props.quota} />

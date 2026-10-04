@@ -46,14 +46,14 @@ export function ctxParts(u: LastUsage | undefined, window: number | undefined): 
 }
 
 /**
- * 缓存：hit 是最近一次请求有多少输入来自缓存（向下取整，不到 100 不显示 100）；
+ * 缓存：hit 是最近一次请求有多少输入来自缓存（向下取到一位小数，不到 100 不显示 100）；
  * left 是距缓存过期还剩多久（纯分钟，不到一分钟按秒），过期了为空。没有用量时返回 undefined
  */
 export function cacheParts(u: LastUsage | undefined, now: number): { hit: number; left?: string } | undefined {
   const n = u ? total(u) : 0
   if (!u || n <= 0) return
   const rem = sec(u.at) + u.ttl - sec(now)
-  return { hit: Math.floor((u.cacheRead * 100) / n), left: rem <= 0 ? undefined : rem >= 60 ? `${Math.floor(rem / 60)}m` : `${rem}s` }
+  return { hit: Math.floor((u.cacheRead * 1000) / n) / 10, left: rem <= 0 ? undefined : rem >= 60 ? `${Math.floor(rem / 60)}m` : `${rem}s` }
 }
 
 /** 额度窗口：剩余百分比（100 − 已用，取整）和距重置 */

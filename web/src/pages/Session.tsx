@@ -1,9 +1,11 @@
 import { createEffect, createSignal, For, onSettled, Show, untrack } from 'solid-js'
 import { Composer } from '../components/Composer'
 import { ItemView, LiveView } from '../components/ItemView'
+import { ModelSheet } from '../components/ModelSheet'
 import { PermissionSheet, type SheetProps } from '../components/PermissionSheet'
 import { PlanSheet } from '../components/PlanSheet'
 import { QuestionSheet } from '../components/QuestionSheet'
+import { RewindSheet } from '../components/RewindSheet'
 import { StateBadge } from '../components/StateBadge'
 import { StatusLine } from '../components/StatusLine'
 import { ApprovalBanner, TabBar } from '../components/TabBar'
@@ -15,7 +17,7 @@ import { useOverview, useQuota } from '../overview'
 import { go } from '../router'
 import { openSession } from '../session/store'
 import { modelLabel } from '../status'
-import { TODO_TOOLS } from '../session/view'
+import { TODO_TOOLS, type UserItem } from '../session/view'
 
 export function SessionPage(props: { id: string }) {
   // 换会话时整页重建（App 里 keyed），id 只取一次
@@ -34,6 +36,17 @@ export function SessionPage(props: { id: string }) {
   const history = () => {
     const i = s.info()
     return !!i && !i.owned && !i.terminal
+  }
+
+  /** 切模型的弹层开着 */
+  const [picking, setPicking] = createSignal(false)
+  /** 要回退到哪条之前（弹层开着）；回退完把它的原文放回输入框 */
+  const [rewinding, setRewinding] = createSignal<UserItem>()
+  const [fill, setFill] = createSignal<{ text: string }>()
+  /** 空闲、终端没占着才能回退 */
+  const rewindable = () => {
+    const i = s.info()
+    return i?.state === 'idle' && !i.terminal
   }
 
   // 切页、回前台都会重连，一般一两百毫秒：这期间照旧显示缓存的状态，断开超过 1 秒才换成「连接中…」
@@ -122,8 +135,23 @@ export function SessionPage(props: { id: string }) {
         <header class="flex items-center gap-2 border-b border-neutral-800 px-4 py-2">
           <div class="min-w-0 flex-1">
             <h1 class="truncate text-sm font-medium">{s.info()?.title ?? '…'}</h1>
-            {/* 目录 · 模型 · 上下文上限 · effort；权限模式在输入框左边 */}
-            <p class="min-h-4 truncate text-xs text-neutral-500">{s.info() ? [basename(s.info()!.cwd), modelLabel(s.info()!)].filter(Boolean).join(' · ') : ''}</p>
+            {/* 目录 · 模型 · 上下文上限 · effort，点模型那段切模型、effort（终端会话只读）；权限模式在输入框左边 */}
+            <p class="min-h-4 truncate text-xs text-neutral-500">
+              <Show when={s.info()}>
+                {(i) => (
+                  <>
+                    {basename(i().cwd)} ·{' '}
+                    <button
+                      onClick={() => setPicking(true)}
+                      disabled={!!i().terminal}
+                      class="underline decoration-neutral-700 decoration-dotted underline-offset-2 disabled:no-underline"
+                    >
+                      {modelLabel(i()) || '模型'}
+                    </button>
+                  </>
+                )}
+              </Show>
+            </p>
           </div>
           <Show
             when={!slow() && s.info()}
@@ -173,7 +201,9 @@ export function SessionPage(props: { id: string }) {
               {s.loadingOlder() ? '加载中…' : '更早的消息'}
             </button>
           </Show>
-          <For each={view.items}>{(item) => <ItemView item={item} sub={view.sub} />}</For>
+          <For each={view.items}>
+            {(item) => <ItemView item={item} sub={view.sub} onRewind={rewindable() ? setRewinding : undefined} />}
+          </For>
           <Show when={live()}>{(b) => <LiveView block={b()} />}</Show>
           <Show when={view.compacting}>
             <p class="animate-pulse text-xs text-neutral-500">压缩对话中…</p>
@@ -191,6 +221,9 @@ export function SessionPage(props: { id: string }) {
               state={s.info()?.state ?? 'starting'}
               mode={s.info()?.permissionMode}
               history={history()}
+              cwd={s.info()?.cwd}
+              draftKey={props.id}
+              fill={fill()}
               onSend={s.actions.send}
               onInterrupt={s.actions.interrupt}
               onMode={s.actions.setMode}
@@ -198,6 +231,26 @@ export function SessionPage(props: { id: string }) {
           }
         >
           <TerminalBar />
+        </Show>
+
+        <Show when={picking() && s.info()}>
+          {(i) => <ModelSheet info={i()} onSet={s.actions.setModel} onClose={() => setPicking(false)} />}
+        </Show>
+
+        <Show when={rewinding()} keyed>
+          {(item) => (
+            <RewindSheet
+              text={item.text}
+              cwd={s.info()?.cwd ?? ''}
+              preview={() => s.actions.rewind(item.uuid!, 'both', true)}
+              onRewind={async (restore) => {
+                await s.actions.rewind(item.uuid!, restore)
+                if (restore !== 'code') setFill({ text: item.text })
+                setRewinding(undefined)
+              }}
+              onClose={() => setRewinding(undefined)}
+            />
+          )}
         </Show>
 
         {/* 按请求 id 重建弹层，上一个请求的 busy / 报错不会带到下一个。提问、计划各有自己的弹层 */}

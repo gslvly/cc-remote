@@ -1,7 +1,7 @@
 // 服务端与前端共用的协议类型。只放类型，不放运行时代码。
-import type { PermissionMode, PermissionUpdate, SDKMessage } from '@anthropic-ai/claude-agent-sdk'
+import type { EffortLevel, PermissionMode, PermissionUpdate, RewindFilesResult, SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 
-export type { PermissionMode, PermissionUpdate, SDKMessage }
+export type { EffortLevel, PermissionMode, PermissionUpdate, RewindFilesResult, SDKMessage }
 
 /**
  * 手机上能切的权限模式（终端 Shift+Tab 轮换的那几个）。auto 要看开关，不提供；
@@ -203,6 +203,12 @@ export interface FavoriteBody {
   favorite: boolean
 }
 
+/** 网页推送的订阅：浏览器 PushSubscription.toJSON() 里服务端要用的部分。p256dh、auth 是 base64url */
+export interface WebPushSubscription {
+  endpoint: string
+  keys: { p256dh: string; auth: string }
+}
+
 export interface CreateSessionBody {
   cwd: string
   prompt: string
@@ -217,6 +223,62 @@ export interface SendMessageBody {
 /** POST /api/sessions/:id/mode：子进程被回收了就记下，下次起子进程时带上 */
 export interface SetModeBody {
   mode: SwitchableMode
+}
+
+/**
+ * POST /api/sessions/:id/model：切模型、effort（终端里的 /model、/effort），只对本会话，同 mode 记着。
+ * model 是 CatalogModel.value；effort 为 null 回到默认
+ */
+export interface SetModelBody {
+  model?: string
+  effort?: EffortLevel | null
+}
+
+/** 回退哪样（终端回退菜单里的三项）：代码和对话一起、只回退对话、只还原代码 */
+export type RewindRestore = 'both' | 'conversation' | 'code'
+
+/**
+ * POST /api/sessions/:id/rewind：回退到某条用户消息之前（终端里按两下 Esc），会话空闲时才行。uuid 是 user_input 事件的 uuid。
+ * 代码还原成发这条消息时的样子；对话截到它前一条（内容流重建，收到新的 hello）。说好的哪样做不了就报错，什么都不动。
+ * dryRun 只预览、不看 restore：要还原哪些文件，对话能不能回退
+ */
+export interface RewindBody {
+  uuid: string
+  /** 默认 both */
+  restore?: RewindRestore
+  dryRun?: boolean
+}
+
+export interface RewindResult {
+  /** 代码的还原结果，只回退对话时没有。预览时 canRewind 为 false：这条没留底（开检查点之前发的、本地命令），只能回退对话 */
+  files?: RewindFilesResult
+  /** 预览时：对话回退不了的原因（回不到第一条之前、压缩掉了），这时只能还原代码 */
+  conversationBlocked?: string
+}
+
+/** 斜杠命令：Claude Code 自己的命令和各处的 skill（SDK 的 supportedCommands） */
+export interface CatalogCommand {
+  name: string
+  description: string
+  argumentHint?: string
+  aliases?: string[]
+}
+
+/** 可选的模型（SDK 的 supportedModels） */
+export interface CatalogModel {
+  /** 别名或完整 id，切模型时传它 */
+  value: string
+  /** 实际的模型 id，与 SessionInfo.model 比对 */
+  resolved?: string
+  displayName: string
+  description: string
+  efforts?: EffortLevel[]
+}
+
+/** GET /api/catalog?cwd= ：这个目录下的斜杠命令（项目里的 skill 各目录不同）和可选模型 */
+export interface Catalog {
+  commands: CatalogCommand[]
+  models: CatalogModel[]
 }
 
 /**

@@ -1,8 +1,9 @@
-// 推送到手机（Bark / ntfy）：待批准、一轮结束、额度被拒，点开进入那个会话。
+// 推送到手机（Bark / ntfy / 网页推送）：待批准、一轮结束、额度被拒，点开进入那个会话。
 // 只在没有概览流连着时推：手机切后台、锁屏时前端会断开（见 web/src/sse.ts）；在前台时由应用内横幅和状态点提醒
 import type { SDKRateLimitInfo, SDKResultMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { PermissionRequest } from '../shared/protocol'
 import type { PushConfig } from './config'
+import type { WebPush } from './webpush'
 
 export interface Notice {
   title: string
@@ -81,13 +82,16 @@ export function quotaNotice(s: Target, info: SDKRateLimitInfo): Notice {
 export class Pusher {
   private cfg: PushConfig = {}
   private base = ''
+  private web?: WebPush
   /** 连着的概览流 */
   private viewers = 0
   /** 这一轮已经推过额度被拒的会话：随后那个出错的 result 就不再推 */
   private limited = new Set<string>()
 
-  configure(cfg: PushConfig | undefined, publicUrl: string) {
+  /** web 是网页推送的订阅表；测试里不传，免得读到本机真实的订阅 */
+  configure(cfg: PushConfig | undefined, publicUrl: string, web?: WebPush) {
     this.cfg = cfg ?? {}
+    this.web = web
     this.base = publicUrl.replace(/\/+$/, '')
   }
 
@@ -120,13 +124,28 @@ export class Pusher {
   private notify(n: Notice) {
     if (this.viewers > 0) return
     for (const r of pushRequests(this.cfg, n, `${this.base}/#/s/${n.session}`)) void this.send(r.url, r.init)
+    void this.webPush(n)
   }
 
-  private async send(url: string, init: RequestInit) {
+  /** 推送服务回 404 / 410：设备退订了、清了网站数据、卸了 PWA，订阅作废 */
+  private async webPush(n: Notice) {
+    const web = this.web
+    if (!web) return
+    try {
+      for (const r of await web.requests(n))
+        void this.send(r.url, r.init).then((status) => (status === 404 || status === 410) && web.remove(r.url))
+    } catch (e) {
+      console.warn(`[push] 网页推送出错：${e instanceof Error ? e.message : e}`)
+    }
+  }
+
+  /** 返回 HTTP 状态，没发出去时没有 */
+  private async send(url: string, init: RequestInit): Promise<number | undefined> {
     const host = new URL(url).host
     try {
       const res = await fetch(url, { ...init, signal: AbortSignal.timeout(10_000) })
       if (!res.ok) console.warn(`[push] ${host} 返回 ${res.status}：${(await res.text()).slice(0, 200)}`)
+      return res.status
     } catch (e) {
       console.warn(`[push] 发到 ${host} 失败：${e instanceof Error ? e.message : e}`)
     }

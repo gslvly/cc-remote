@@ -1,7 +1,7 @@
 import { createMemo, createSignal, For, Match, type ParentProps, Show, Switch, untrack } from 'solid-js'
 import type { LiveBlock } from '../../../shared/protocol'
 import { shortPath } from '../format'
-import type { Item, ToolItem, ToolStatus } from '../session/view'
+import type { Item, ToolItem, ToolStatus, UserItem } from '../session/view'
 import { DiffStat, DiffView, editHunks } from './Diff'
 import { Markdown } from './Markdown'
 import { questionsOf } from './QuestionSheet'
@@ -268,21 +268,47 @@ function PlanCard(props: { item: ToolItem }) {
   )
 }
 
-// 同一个 key 的条目 kind 不会变（store 按 key 合并），所以按 kind 分支只在创建时判断一次；
-// 分支里读 item 的字段仍是响应式的，文本、工具状态变了会原地更新
-export function ItemView(props: { item: Item; sub: Record<string, Item[]> }) {
-  // 按 kind、name 分发只做一次（一条消息的种类不会变）；内容在 JSX 里读，照样更新
-  return untrack(() => view(props.item, props.sub))
+/** 人输入的那条。能回退时点一下露出「回退到这里」 */
+function UserBubble(props: { item: UserItem } & OnRewind) {
+  const [open, setOpen] = createSignal(false)
+  const rewind = () => (props.item.uuid ? props.onRewind : undefined)
+  return (
+    <div class="flex flex-col items-end gap-1">
+      <div
+        onClick={() => rewind() && setOpen(!open())}
+        class="max-w-[85%] rounded-2xl rounded-br-md bg-neutral-800 px-3.5 py-2 whitespace-pre-wrap"
+      >
+        {props.item.text}
+      </div>
+      <Show when={open() && rewind()}>
+        <button
+          onClick={() => {
+            setOpen(false)
+            rewind()?.(props.item)
+          }}
+          class="px-1 text-xs text-neutral-400"
+        >
+          ↶ 回退到这里
+        </button>
+      </Show>
+    </div>
+  )
 }
 
-function view(item: Item, sub: Record<string, Item[]>) {
+// 同一个 key 的条目 kind 不会变（store 按 key 合并），所以按 kind 分支只在创建时判断一次；
+// 分支里读 item 的字段仍是响应式的，文本、工具状态变了会原地更新
+/** 回退到某条用户消息之前；能回退时（空闲、终端没占着）才给 */
+type OnRewind = { onRewind?: (item: UserItem) => void }
+
+export function ItemView(props: { item: Item; sub: Record<string, Item[]> } & OnRewind) {
+  // 按 kind、name 分发只做一次（一条消息的种类不会变）；内容在 JSX 里读，照样更新
+  return untrack(() => view(props.item, props.sub, props))
+}
+
+function view(item: Item, sub: Record<string, Item[]>, p: OnRewind) {
   switch (item.kind) {
     case 'user':
-      return (
-        <div class="flex justify-end">
-          <div class="max-w-[85%] rounded-2xl rounded-br-md bg-neutral-800 px-3.5 py-2 whitespace-pre-wrap">{item.text}</div>
-        </div>
-      )
+      return <UserBubble item={item} onRewind={p.onRewind} />
     case 'text':
       return <Markdown text={item.text} />
     case 'thinking':

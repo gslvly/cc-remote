@@ -25,7 +25,7 @@ Keywords: `claude-code` `claude-code-remote` `remote-control` `remote-control-al
 - ✅ **Approvals passed straight through**: permission requests (allow / allow for this session / deny), `AskUserQuestion` options, plan approval, interrupt, permission-mode switching (the terminal's `Esc` / `Shift+Tab`)
 - 👀 **Read-only view of terminal sessions**: watch sessions running in your computer's terminal live; once the terminal exits or runs `/clear`, it becomes a history session you can keep chatting in from the phone (or `claude --resume <id>`)
 - 📊 **Status bar**: model, context usage, cache hit rate, 5h / 7d quota — same numbers as the terminal statusline
-- 🔔 **Push to phone**: via Bark / ntfy when approval is needed, a turn finishes, or quota is rejected (with deep links)
+- 🔔 **Push to phone**: when approval is needed, a turn finishes, or quota is rejected (with deep links): native PWA notifications over HTTPS, or via Bark / ntfy
 - 🔑 **Any auth**: whatever your terminal `claude` uses — subscription login, API key, `ANTHROPIC_BASE_URL` proxies / compatible endpoints, Bedrock and other cloud providers
 - 🔒 **Phone never talks to Anthropic**: the phone only connects to your own computer (LAN or your overlay network) — no Claude app, no Claude login on the phone; token login (httpOnly cookie), with the security weight of a remote shell
 - 🪶 **Lightweight**: Bun + Hono server, Solid frontend (~40KB gzipped); reimplements nothing from Claude Code — it only renders and relays
@@ -72,7 +72,8 @@ phone ──LAN / overlay──> your computer (cc-remote) ──> local claude 
   in your terminal (when running as a background service, put the proxy in the service config — see "Start at
   login")
 - The cc-remote server makes no requests to Anthropic itself (quota, context etc. come from `claude`'s
-  responses) and contacts no external service except the optional Bark / ntfy push; transcripts stay in your
+  responses) and contacts no external service except optional push (Bark / ntfy, or the browser push service of
+  devices that turned on notifications); transcripts stay in your
   local `~/.claude`
 - Overlay networks do NAT traversal: their coordination / relay servers see your devices' public IPs (the
   overlay provider sees them, not Anthropic). If that bothers you, stay on the LAN or self-host Headscale / WireGuard
@@ -151,6 +152,10 @@ phone gets there is up to you — cc-remote isn't tied to any networking tool:
      the home-screen icon and **log in with the token once more** (the home-screen app doesn't share cookies with Safari)
    - **Android**: open in Chrome → menu (top right) → "Add to Home screen" or "Install app"
 3. Push: enter the key in Bark, or subscribe to your topic in ntfy; tapping a notification opens that session
+4. Native notifications (optional; needs HTTPS access, see "Security"; iOS needs 16.4+ and opening from the home-screen
+   icon): tap "开启通知" next to the title on the home page and allow. Approvals and finished turns then pop up as system
+   notifications that open the session in the PWA, no extra app needed. Over plain `http://<IP>` the toggle is hidden
+   and alerts stay in-app (banner and approval sheet)
 
 Once it's on your home screen:
 
@@ -320,6 +325,11 @@ Windows enable "AC Power Recovery" / "Restore on AC Power Loss" in the BIOS.
   Terminal sessions and history sessions opened only for viewing stay out of the tab bar (reach them from Home or the directory page); history sessions are marked in the header, and sending a message resumes them and adds them to the tab bar.
   Assistant text streams in token by token, thinking is collapsed, Bash / file edits / searches are folded into tool cards,
   Todo progress shows as a top progress bar; bottom sheets handle permission requests and questions, and plans (ExitPlanMode) can be approved with an option to switch to acceptEdits at the same time
+- **Input box**: typing `/` pops up the commands and skills list (as reported by Claude Code, minus the ones that don't work on the phone; output of commands like `/context` and `/usage` shows up as usual);
+  `/clear` can't be sent — use `[+]` for a new session; unsent drafts are kept per session
+- **Model / effort**: tap the model in the header; applies to this session only (like `/model` and `/effort` in the terminal) and carries over when the session is resumed
+- **Rewind** (like pressing Esc twice in the terminal): when idle, tap one of your messages → "Rewind to here"; it previews the files to restore, then you pick code and conversation, conversation only, or code only.
+  When the conversation is rewound, the message text returns to the input box. Only files Claude changed with Write / Edit are restored (not Bash); the conversation can't go back past the first message, but code can
 - **Terminal sessions**: read-only, refreshed per complete message; once the terminal exits or `/clear` starts a new session, the input box appears and sending a message resumes it
 - **Status bar**: `directory · model · effort` + four cells for context / cache / 5h / 7d, colored by threshold, with live countdowns;
   all data comes from what Claude Code itself reports (the latest response's usage, rate_limit_event) — no extra requests
@@ -338,7 +348,7 @@ computer: cc-remote server (Bun + Hono)
   ├─ managed sessions ×N: Agent SDK query(), one claude child process + output buffer per session
   ├─ terminal-session viewing: reads the ~/.claude/sessions registry + watches transcript appends
   ├─ reads ~/.claude/projects (history sessions, recent directories)
-  └─ push (optional): Bark / ntfy
+  └─ push (optional): Bark / ntfy / Web Push
 ```
 
 Key decisions: Agent SDK (structured messages render as cards, permissions via the `canUseTool` callback, no

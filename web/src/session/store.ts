@@ -7,8 +7,12 @@ import type {
   LiveBlock,
   LiveUpdate,
   PermissionDecisionBody,
+  RewindBody,
+  RewindRestore,
+  RewindResult,
   SessionInfo,
   SetModeBody,
+  SetModelBody,
   StreamHello,
   SwitchableMode,
 } from '../../../shared/protocol'
@@ -43,8 +47,12 @@ export interface SessionStore {
     interrupt(): Promise<unknown>
     /** 切权限模式 */
     setMode(mode: SwitchableMode): Promise<unknown>
+    /** 切模型、effort */
+    setModel(b: SetModelBody): Promise<unknown>
     /** 关掉：停子进程、出标签条 */
     close(): Promise<unknown>
+    /** 回退到这条用户消息之前，restore 选回退哪样；dryRun 只预览。回退了对话的，内容流会重建 */
+    rewind(uuid: string, restore: RewindRestore, dryRun?: boolean): Promise<RewindResult>
   }
 }
 
@@ -155,7 +163,10 @@ function createEntry(id: string): SessionStore {
     decide: (reqId: string, d: PermissionDecisionBody) => api(`/sessions/${id}/permissions/${reqId}`, d),
     interrupt: () => api(`/sessions/${id}/interrupt`, {}),
     setMode: (mode: SwitchableMode) => api<SessionInfo>(`/sessions/${id}/mode`, { mode } satisfies SetModeBody).then(setInfo),
+    setModel: (b: SetModelBody) => api<SessionInfo>(`/sessions/${id}/model`, b).then(setInfo),
     close: () => api(`/sessions/${id}/close`, {}),
+    rewind: (uuid: string, restore: RewindRestore, dryRun = false) =>
+      api<RewindResult>(`/sessions/${id}/rewind`, { uuid, restore, dryRun } satisfies RewindBody),
   }
 
   return { view, live, info, conn, more, loadingOlder, loadOlder, attach, detach, actions }

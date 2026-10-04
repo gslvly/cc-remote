@@ -18,8 +18,11 @@ export interface ToolItem {
   summary?: string
 }
 
+/** 人输入的。uuid 是它在 transcript 里的 uuid，回退时用 */
+export type UserItem = { kind: 'user'; key: string; text: string; uuid?: string }
+
 export type Item =
-  | { kind: 'user'; key: string; text: string }
+  | UserItem
   | { kind: 'text'; key: string; text: string }
   | { kind: 'thinking'; key: string; text: string }
   | ToolItem
@@ -273,7 +276,7 @@ export function applyEvents(v: View, envs: EventEnvelope[]): View {
     switch (ev.type) {
       case 'user_input':
         interrupted = false
-        items.push({ kind: 'user', key, text: ev.text })
+        items.push({ kind: 'user', key, text: ev.text, uuid: ev.uuid })
         break
       case 'sdk':
         onSdk(ev.msg, key)

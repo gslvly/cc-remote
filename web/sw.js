@@ -21,6 +21,38 @@ self.addEventListener('fetch', (e) => {
   // 其余（/api、manifest、图标）不经过 SW
 })
 
+// 网页推送（见 server/webpush.ts、src/notify.ts）。服务端只在页面都不在前台时推，收到就弹（iOS 收到推送不弹会被收回权限）；
+// 同一会话的新提醒顶掉旧的，并重新响铃
+self.addEventListener('push', (e) => {
+  let n = {}
+  try {
+    n = e.data?.json() ?? {}
+  } catch {}
+  e.waitUntil(
+    self.registration.showNotification(n.title || 'cc-remote', {
+      body: n.body,
+      icon: '/icon-192.png',
+      tag: n.session,
+      renotify: !!n.session,
+      data: { session: n.session },
+    }),
+  )
+})
+
+// 点通知：已经开着的窗口自己换到那个会话（换路由要走页面里的 go.*），没开就带深链接新开
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close()
+  const { session } = e.notification.data ?? {}
+  e.waitUntil(
+    (async () => {
+      const [win] = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      if (!win) return self.clients.openWindow(session ? `/#/s/${session}` : '/')
+      await win.focus()
+      if (session) win.postMessage({ type: 'open', session })
+    })(),
+  )
+})
+
 // 页面：优先走网络，离线才回退缓存。全是 hash 路由，统一存在 '/' 下
 async function networkFirst(e) {
   const cache = await caches.open(CACHE)

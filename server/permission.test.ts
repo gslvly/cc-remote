@@ -1,4 +1,4 @@
-// 审批的决定怎么回给 SDK；权限模式的切换与记忆
+// 审批的决定怎么回给 SDK；权限模式、模型、effort 的切换与记忆
 import { CWD, idle, spawned, Transcript } from './testkit'
 import { describe, expect, test } from 'bun:test'
 import type { PermissionUpdate } from '@anthropic-ai/claude-agent-sdk'
@@ -6,6 +6,7 @@ import type { PermissionRequest } from '../shared/protocol'
 
 const { Session } = await import('./session')
 const { permissionResult } = await import('./permission')
+const { catalog, CLEAR_COMMAND } = await import('./catalog')
 
 const rule: PermissionUpdate = { type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'npm test' }], behavior: 'allow', destination: 'localSettings' }
 const req = (o: Partial<PermissionRequest> = {}): PermissionRequest => ({ id: 'r', toolName: 'Bash', input: { command: 'npm test' }, ...o })
@@ -94,5 +95,46 @@ describe('Session 的审批与权限模式', () => {
     const second = spawned.at(-1)!
     expect(second).not.toBe(first)
     expect(second.options).toMatchObject({ resume: s.id, permissionMode: 'plan' })
+  })
+})
+
+describe('切模型、effort，命令列表', () => {
+  const fresh = () => new Session(new Transcript().id, CWD, 't', () => {}, { fresh: true })
+
+  test('活着时调 setModel / applyFlagSettings，状态栏先换成实际的模型；回收后 resume 带上', async () => {
+    const s = fresh()
+    s.send('one')
+    await idle(s)
+    await Bun.sleep(1) // 命令、模型列表是起来后另外问的
+    const first = spawned.at(-1)!
+    await s.setModel({ model: 'sonnet', effort: 'low' })
+    expect(first.models).toEqual(['sonnet'])
+    expect(first.flags).toEqual([{ effortLevel: 'low' }])
+    expect(s.info()).toMatchObject({ model: 'claude-sonnet-5', effort: 'low' })
+
+    s.sleep()
+    s.send('two')
+    await idle(s)
+    expect(spawned.at(-1)!.options).toMatchObject({ resume: s.id, model: 'sonnet', effort: 'low' })
+
+    // effort 回到默认：之后起子进程不再带
+    await s.setModel({ effort: null })
+    s.sleep()
+    s.send('three')
+    await idle(s)
+    expect(spawned.at(-1)!.options.effort).toBeUndefined()
+  })
+
+  test('命令列表滤掉 /clear 这类；手打的 /clear 也认得出来', async () => {
+    const s = fresh()
+    s.send('one')
+    await idle(s)
+    await Bun.sleep(1)
+    const { commands, models } = await catalog(CWD)
+    expect(commands.map((c) => c.name)).toEqual(['compact', 'usage', 'my-skill'])
+    expect(models[0]).toMatchObject({ value: 'sonnet', resolved: 'claude-sonnet-5', efforts: ['low', 'high'] })
+    expect(models[1]!.efforts).toBeUndefined()
+    for (const t of ['/clear', '/new', '/reset 名字']) expect(CLEAR_COMMAND.test(t)).toBe(true)
+    for (const t of ['/clearly', 'clear', '/compact']) expect(CLEAR_COMMAND.test(t)).toBe(false)
   })
 })

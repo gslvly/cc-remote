@@ -22,8 +22,58 @@ export function permissionRequest(...[toolName, input, opts]: Parameters<CanUseT
   }
 }
 
+/**
+ * 还在等手机决定的审批。canUseTool 交给 SDK；发出请求、请求作废经回调记进会话的事件缓冲。
+ * requested 返回 permission_request 事件的 seq
+ */
+export class Approvals {
+  private map = new Map<string, Pending>()
+
+  constructor(private on: { requested: (req: PermissionRequest) => number; cancelled: (id: string) => void }) {}
+
+  get size() {
+    return this.map.size
+  }
+
+  /** 还在等的请求事件的 seq：只发最近一段时要包含进去，不然手机上弹不出审批 */
+  seqs() {
+    return [...this.map.values()].map((p) => p.seq)
+  }
+
+  canUseTool: CanUseTool = (toolName, input, opts) =>
+    new Promise<PermissionResult>((resolve) => {
+      const req = permissionRequest(toolName, input, opts)
+      const p: Pending = { req, input, resolve, seq: 0 }
+      this.map.set(req.id, p)
+      p.seq = this.on.requested(req)
+      opts.signal.addEventListener('abort', () => this.cancel(req.id, { behavior: 'deny', message: 'Aborted.' }))
+    })
+
+  /** 手机上的决定回给 SDK；请求已处理或已失效返回 false */
+  decide(id: string, d: PermissionDecisionBody): boolean {
+    const p = this.map.get(id)
+    if (!p) return false
+    this.map.delete(id)
+    p.resolve(permissionResult(p, d))
+    return true
+  }
+
+  /** 全部作废：中断、子进程退出 */
+  cancelAll(result: PermissionResult) {
+    for (const id of [...this.map.keys()]) this.cancel(id, result)
+  }
+
+  private cancel(id: string, result: PermissionResult) {
+    const p = this.map.get(id)
+    if (!p) return
+    this.map.delete(id)
+    p.resolve(result)
+    this.on.cancelled(id)
+  }
+}
+
 /** 一个还在等手机决定的 canUseTool 调用 */
-export interface Pending {
+interface Pending {
   req: PermissionRequest
   input: Record<string, unknown>
   resolve: (r: PermissionResult) => void

@@ -43,11 +43,15 @@ type WithSettings = Query & { getSettings(): Promise<{ applied?: { effort?: stri
 
 /**
  * 问托管会话的子进程：上下文上限（getContextUsage 的 rawMaxTokens，实测与 modelUsage 的 contextWindow 一致；
- * 第一轮 result 之前就能知道），以及 effort（SDK 会话的 init 里没有 effort，实测）
+ * 第一轮 result 之前就能知道），以及 effort（SDK 会话的 init 里没有 effort，实测）。
+ * withEffort 为 false：这个会话单独切过 effort，问到的不能当成这个模型的
  */
-export async function learn(q: Query, model: string) {
+export async function learn(q: Query, model: string, withEffort = true) {
   const [ctx, settings] = await Promise.all([q.getContextUsage({ detail: 'summary' }), (q as WithSettings).getSettings()])
-  setFacts(model, { ...(ctx.rawMaxTokens > 0 && { window: ctx.rawMaxTokens }), effort: settings.applied?.effort ?? null })
+  setFacts(model, {
+    ...(ctx.rawMaxTokens > 0 && { window: ctx.rawMaxTokens }),
+    ...(withEffort && { effort: settings.applied?.effort ?? null }),
+  })
 }
 
 // ---- 主链最近一次用量 ----

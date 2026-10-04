@@ -51,15 +51,38 @@ export class Transcript {
   }
 }
 
-/** 每起一个假子进程记一条：启动参数（canUseTool 从这里拿来直接调），setPermissionMode 收到的 */
-export const spawned: { id: string; options: sdk.Options; modes: sdk.PermissionMode[] }[] = []
+/** 每起一个假子进程记一条：启动参数（canUseTool 从这里拿来直接调），setPermissionMode、setModel、applyFlagSettings、rewindFiles 收到的 */
+export const spawned: {
+  id: string
+  options: sdk.Options
+  modes: sdk.PermissionMode[]
+  models: (string | undefined)[]
+  flags: unknown[]
+  rewinds: string[]
+}[] = []
 
-/** 假子进程：每收到一条，写进 transcript（用消息自带的 uuid），回一句 re: … */
+/** 这些用户消息没留文件快照：rewindFiles 预览报 canRewind: false，真还原报错（同真 CLI） */
+export const noCheckpoint = new Set<string>()
+
+/** 假子进程报的斜杠命令、模型 */
+const COMMANDS: sdk.SlashCommand[] = [
+  { name: 'compact', description: 'Compact', argumentHint: '<instructions>', builtin: true },
+  { name: 'clear', description: 'Clear', argumentHint: '', aliases: ['reset', 'new'], builtin: true },
+  { name: 'usage', description: 'Usage', argumentHint: '', aliases: ['cost'], builtin: true },
+  { name: 'my-skill', description: 'Mine', argumentHint: '' },
+]
+const MODELS: sdk.ModelInfo[] = [
+  { value: 'sonnet', resolvedModel: 'claude-sonnet-5', displayName: 'Sonnet', description: 'Sonnet 5', supportsEffort: true, supportedEffortLevels: ['low', 'high'] },
+  { value: 'haiku', resolvedModel: 'claude-haiku-4-5', displayName: 'Haiku', description: 'Haiku 4.5' },
+]
+
+/** 假子进程：每收到一条，写进 transcript（用消息自带的 uuid），回一句 re: …。带 resumeSessionAt 的从那条接着写 */
 function fakeQuery({ prompt, options }: { prompt: AsyncIterable<sdk.SDKUserMessage>; options: sdk.Options }) {
   const id = (options.sessionId ?? options.resume)!
-  const rec = { id, options, modes: [] as sdk.PermissionMode[] }
+  const rec = { id, options, modes: [] as sdk.PermissionMode[], models: [] as (string | undefined)[], flags: [] as unknown[], rewinds: [] as string[] }
   spawned.push(rec)
   const t = transcripts.get(id) ?? new Transcript(id)
+  if (options.resumeSessionAt) t.last = options.resumeSessionAt
   async function* gen() {
     for await (const m of prompt) {
       t.user(m.message.content as string, { uuid: m.uuid })
@@ -76,6 +99,16 @@ function fakeQuery({ prompt, options }: { prompt: AsyncIterable<sdk.SDKUserMessa
     setPermissionMode: async (m: sdk.PermissionMode) => void rec.modes.push(m),
     getContextUsage: async () => ({ rawMaxTokens: 200_000, model: 'haiku' }),
     getSettings: async () => ({ applied: { effort: null } }),
+    setModel: async (m?: string) => void rec.models.push(m),
+    applyFlagSettings: async (f: unknown) => void rec.flags.push(f),
+    supportedCommands: async () => COMMANDS,
+    supportedModels: async () => MODELS,
+    rewindFiles: async (uuid: string, o?: { dryRun?: boolean }): Promise<sdk.RewindFilesResult> => {
+      rec.rewinds.push(`${o?.dryRun ? 'dry' : 'real'} ${uuid}`)
+      if (!noCheckpoint.has(uuid)) return { canRewind: true, filesChanged: [`${CWD}/a.txt`], insertions: 1, deletions: 2 }
+      if (o?.dryRun) return { canRewind: false, error: 'No file checkpoint found for this message.' }
+      throw new Error('No file checkpoint found for this message.')
+    },
   })
 }
 mock.module('@anthropic-ai/claude-agent-sdk', () => ({ ...sdk, query: fakeQuery }))

@@ -40,6 +40,19 @@ export async function readTranscript(id: string): Promise<TranscriptEntry[]> {
 }
 
 /**
+ * 回退到 uuid 那条之前，对话留下的条目；回退不了返回原因。
+ * resumeAt 是上次回退的截断点：还没发新消息，transcript 里它后面的都已回退掉
+ */
+export function keptBefore(entries: TranscriptEntry[], uuid: string, resumeAt?: string): TranscriptEntry[] | string {
+  const end = resumeAt ? entries.findIndex((e) => e.uuid === resumeAt) + 1 : entries.length
+  const i = entries.slice(0, end).findIndex((e) => e.uuid === uuid)
+  if (i < 0) return '对话里没有这条（压缩掉的回不去）'
+  // resumeSessionAt 要接在一条消息后面
+  if (i === 0) return '回不到第一条之前'
+  return entries.slice(0, i)
+}
+
+/**
  * SDK 流里的 assistant / user 消息原样进缓冲，这里拼成同样的形状；只有人输入的那条换成 user_input
  * （SDK 不回显用户消息，托管会话里它是服务端自己记的）
  */
