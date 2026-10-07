@@ -124,6 +124,7 @@ export type LiveUpdate = { op: 'set'; block: LiveBlock | null } | { op: 'append'
  * - `ev`：新事件，SSE id 为 `epoch:seq`
  * - `live`：快照的变化（LiveUpdate）
  * - `state`：会话状态变化（不进缓冲）
+ * - `deleted`：会话被删了（POST /api/sessions/:id/delete），之后再连是 404
  */
 export interface StreamHello {
   epoch: string

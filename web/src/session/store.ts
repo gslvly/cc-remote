@@ -20,6 +20,7 @@ import type {
   SwitchableMode,
 } from '../../../shared/protocol'
 import { api } from '../api'
+import { saveDraft } from '../draft'
 import { type Conn, openStream, type Stream } from '../sse'
 import { applyEvents, emptyView, type View } from './view'
 
@@ -74,6 +75,13 @@ export function openSession(id: string): SessionStore {
     cache.delete(old)
   }
   return s
+}
+
+/** 删会话，找不回来。缓存、草稿一并清掉；正看着它的页面（别的手机上）收到 deleted，显示会话不存在 */
+export async function removeSession(id: string) {
+  await api(`/sessions/${id}/delete`, {})
+  cache.delete(id)
+  saveDraft(id, '')
 }
 
 function createEntry(id: string): SessionStore {
@@ -135,6 +143,11 @@ function createEntry(id: string): SessionStore {
         ev: (d) => append([JSON.parse(d)]),
         live: (d) => onLive(JSON.parse(d)),
         state: (d) => setInfo(JSON.parse(d)),
+        deleted: () => {
+          detach()
+          cache.delete(id)
+          setConn('gone')
+        },
       },
       onConn: setConn,
     })

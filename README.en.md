@@ -321,7 +321,8 @@ Windows enable "AC Power Recovery" / "Restore on AC Power Loss" in the BIOS.
 ## Usage
 
 - **Home**: quota (5h / 7d remaining) + all sessions + recent directories / favorites / directory browser
-- **Directory page**: start a new session (images allowed; optionally pick model / effort / permission mode first, otherwise your local settings apply), or open a history session from that directory (sending a message resumes it as a managed session)
+- **Directory page**: start a new session (images allowed; optionally pick model / effort / permission mode first, otherwise your local settings apply), or open a history session from that directory (sending a message resumes it as a managed session);
+  tap "编辑" (Edit) to delete sessions (the transcript goes too and can't be recovered; a running one is interrupted first, one still open in a terminal can't be deleted)
 - **Session page**: the tab bar switches between sessions open on the phone in the current directory (new or resumed; ● running / ◐ awaiting approval / ○ idle, `[+]` new).
   Terminal sessions and history sessions opened only for viewing stay out of the tab bar (reach them from Home or the directory page); history sessions are marked in the header, and sending a message resumes them and adds them to the tab bar.
   Assistant text streams in token by token, thinking is collapsed, Bash / file edits / searches are folded into tool cards,

@@ -1,6 +1,9 @@
-// 全部会话：新建、按 id 载入、并发上限与空闲回收、扫终端登记表、概览流
-import { type EffortLevel, getSessionInfo, type PermissionMode } from '@anthropic-ai/claude-agent-sdk'
+// 全部会话：新建、按 id 载入、删除、并发上限与空闲回收、扫终端登记表、概览流
+import { deleteSession, type EffortLevel, getSessionInfo, type PermissionMode } from '@anthropic-ai/claude-agent-sdk'
+import { rm } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { ImageAttachment, OverviewSessions, RewindRestore } from '../shared/protocol'
+import { CLAUDE_DIR } from './config'
 import { checkDir } from './fs'
 import { ConflictError, Session } from './session'
 import { type Holder, scanHolders } from './terminal'
@@ -18,6 +21,8 @@ const EVICT_MS = 10 * 60_000
 export class SessionManager {
   private sessions = new Map<string, Session>()
   private loading = new Map<string, Promise<Session | undefined>>()
+  /** 正在删的：这期间不载入、不加进来、不起子进程 */
+  private removing = new Set<string>()
   private watchers = new Set<(list: OverviewSessions) => void>()
   private flushTimer?: ReturnType<typeof setTimeout>
   /** 最近一次扫登记表的结果：sessionId → 持有它的终端进程 */
@@ -71,7 +76,8 @@ export class SessionManager {
     }
     s.touchedAt = Date.now()
     await s.sync()
-    return s
+    // 正在删、已经删了的当作不存在：这时连上内容流就收不到 deleted 了
+    return this.removing.has(id) || this.sessions.get(id) !== s ? undefined : s
   }
 
   /** 发消息。子进程被回收了、或者是历史会话，就 resume */
@@ -92,13 +98,46 @@ export class SessionManager {
     return s.rewind(uuid, restore, dryRun)
   }
 
-  /** 要起子进程之前：先确认终端没占着，把 transcript 里新写的补上，到并发上限就腾个位置 */
+  /** 要起子进程之前：先确认没在删、终端没占着，把 transcript 里新写的补上，到并发上限就腾个位置 */
   private async prepare(s: Session) {
+    const gone = () => this.removing.has(s.id) || this.sessions.get(s.id) !== s
+    if (gone()) throw new ConflictError('会话已删除')
     if (s.live) return
     await this.scan()
     if (s.terminal === 'running') throw new ConflictError('这个会话正在终端里运行，只能旁观')
     await s.sync()
+    // 等待期间开始删了
+    if (gone()) throw new ConflictError('会话已删除')
     if (!s.live) this.makeRoom()
+  }
+
+  /**
+   * 删会话，找不回来：transcript 和子代理的（SDK 的 deleteSession），再加上 CLI 按会话 id 建的目录：
+   * 回退用的文件快照（file-history）、会话环境（session-env）。终端里还开着的不删（终端会接着写）。
+   * 返回 false 是没有这个会话（同 open：cwd 不在 roots 内的当作不存在）
+   */
+  async remove(id: string): Promise<boolean> {
+    if (!UUID.test(id)) return false
+    if (this.removing.has(id)) throw new ConflictError('正在删除')
+    this.removing.add(id)
+    try {
+      const meta = await getSessionInfo(id)
+      if (!meta?.cwd || !(await checkDir(meta.cwd, this.opts.roots)).ok) return false
+      await this.scan()
+      if (this.holders.has(id)) throw new ConflictError('这个会话还开在终端里，先在终端里退出再删')
+      const s = this.sessions.get(id)
+      if (s) {
+        await s.remove()
+        this.sessions.delete(id)
+        this.changed()
+      }
+      await deleteSession(id)
+      await Promise.all(['file-history', 'session-env'].map((d) => rm(join(CLAUDE_DIR, d, id), { recursive: true, force: true })))
+      console.log(`[session ${id.slice(0, 8)}] 已删除`)
+      return true
+    } finally {
+      this.removing.delete(id)
+    }
   }
 
   /** 概览流：托管的会话和终端里正在跑的，按最后活动时间倒序 */
@@ -137,9 +176,9 @@ export class SessionManager {
     if (!meta?.cwd) return
     const dir = await checkDir(meta.cwd, this.opts.roots)
     if (!dir.ok) return
-    // 等待期间扫登记表时已经加进来了
+    // 等待期间扫登记表时已经加进来了；或者开始删了
     const existing = this.sessions.get(id)
-    if (existing) return existing
+    if (existing || this.removing.has(id)) return existing
     const s = new Session(id, dir.path, titleOf(meta), this.changed, { fresh: false, lastActivity: meta.lastModified })
     this.sessions.set(id, s)
     s.setHolder(this.holders.get(id))
@@ -177,7 +216,7 @@ export class SessionManager {
         if (!(await checkDir(h.cwd, this.opts.roots)).ok) continue
         // transcript 写出来之前没东西可看，等下一轮
         const meta = await getSessionInfo(id)
-        if (!meta || this.sessions.has(id)) continue
+        if (!meta || this.sessions.has(id) || this.removing.has(id)) continue
         s = new Session(id, h.cwd, titleOf(meta), this.changed, { fresh: false, lastActivity: meta.lastModified })
         this.sessions.set(id, s)
       }

@@ -419,6 +419,16 @@ api.post('/sessions/:id/close', (c) => {
   return c.json({ ok: true })
 })
 
+// 删会话：连 transcript 一起删，找不回来。正在跑的先中断；终端里还开着的不行
+api.post('/sessions/:id/delete', async (c) => {
+  try {
+    return (await sessions.remove(c.req.param('id'))) ? c.json({ ok: true }) : c.json(NOT_FOUND, 404)
+  } catch (e) {
+    if (e instanceof ConflictError) return commandError(c, e)
+    return c.json({ error: `删除失败：${e instanceof Error ? e.message : String(e)}` }, 500)
+  }
+})
+
 const app = new Hono()
 app.route('/api', api)
 

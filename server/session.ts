@@ -29,6 +29,7 @@ export type StreamMsg =
   | { event: 'ev'; data: EventEnvelope }
   | { event: 'live'; data: LiveUpdate }
   | { event: 'state'; data: SessionInfo }
+  | { event: 'deleted'; data: null }
 type Listener = (msg: StreamMsg) => void
 
 /** 登记表里终端进程的 status → 会话状态。waiting 是终端在等人操作（审批、回答），手机上只能看 */
@@ -369,6 +370,24 @@ export class Session implements RunHost {
     this.owned = false
     this.close()
     this.emitState()
+  }
+
+  /**
+   * 删会话之前：子进程正在跑的先中断，等这一轮收尾（中断也要写进 transcript），再停子进程、等它退出，
+   * 之后就没有人往 transcript 里写了（! 命令由 close 停掉，输出不再记）。看着的手机收到 deleted。停不下来就报错，什么都不动
+   */
+  async remove() {
+    const busy = () => this.run !== undefined && this.run.state !== 'idle'
+    if (busy()) {
+      // 中断失败多半是子进程已经没了，下面照样等它
+      await this.run!.interrupt().catch(() => {})
+      for (let i = 0; i < 100 && busy(); i++) await Bun.sleep(100)
+      if (busy()) throw new ConflictError('Claude 停不下来，稍后再删')
+    }
+    const run = this.run
+    this.close()
+    this.broadcast({ event: 'deleted', data: null })
+    if (run) await Promise.race([run.ended, Bun.sleep(10_000)])
   }
 
   /** 服务端退出。正在跑的命令也停掉、不再记 */

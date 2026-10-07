@@ -43,6 +43,8 @@ export class Run {
   /** 正在生成的那一块，不进缓冲 */
   readonly streaming: LiveTracker
   readonly approvals: Approvals
+  /** 子进程退出了（消息流读到底，见 pump） */
+  readonly ended: Promise<void>
 
   constructor(
     private host: RunHost,
@@ -62,7 +64,7 @@ export class Run {
       },
     })
     this.q = query({ prompt: this.input, options: spawnOptions({ ...args, canUseTool: this.approvals.canUseTool }) })
-    void this.pump()
+    this.ended = this.pump()
   }
 
   get state(): SessionState {
@@ -123,12 +125,10 @@ export class Run {
     this.q.close()
   }
 
+  /** 停掉之后也读到底（不理会），读完就是子进程退出了，ended 靠它 */
   private async pump() {
     try {
-      for await (const msg of this.q) {
-        if (this.closed) break
-        this.onMessage(msg)
-      }
+      for await (const msg of this.q) if (!this.closed) this.onMessage(msg)
     } catch (e) {
       if (!this.closed) this.host.push({ type: 'error', message: e instanceof Error ? e.message : String(e) })
     }

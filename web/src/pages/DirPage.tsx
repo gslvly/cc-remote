@@ -22,7 +22,7 @@ import type {
   SessionInfo,
   SwitchableMode,
 } from '../../../shared/protocol'
-import { api, cachedGet } from '../api'
+import { api, ApiError, cachedGet } from '../api'
 import { CommandMenu, slashQuery } from '../components/CommandMenu'
 import { attachments, createImages, ImageButton, ImageStrip } from '../components/Images'
 import { ModelSheet } from '../components/ModelSheet'
@@ -32,6 +32,7 @@ import { ago, basename, errorText, MODE_BORDER, MODE_LABEL, MODE_TEXT, shortPath
 import { afterPaint } from '../frame'
 import { useOverview } from '../overview'
 import { go } from '../router'
+import { removeSession } from '../session/store'
 import { modelName } from '../status'
 
 /** 目录页：在这个目录开新会话，或者打开它的历史会话（终端里开的也在） */
@@ -229,6 +230,13 @@ function History(props: { path: string; branch?: string }) {
   /** fresh：重新取第一页（替换先显示着的缓存）；more：翻下一页 */
   const [loading, setLoading] = createSignal<false | 'fresh' | 'more'>('fresh')
   const [error, setError] = createSignal('')
+  /** 编辑中：每条后面出「删除」 */
+  const [editing, setEditing] = createSignal(false)
+  /** 正在删的那条，删完之前别的删不了 */
+  const [removing, setRemoving] = createSignal<string>()
+  /** 删掉了的：删之前发出去的取列表请求，回来时还带着它 */
+  const removed = new Set<string>()
+  const keep = (l: DirSession[]) => l.filter((d) => !removed.has(d.id))
 
   const load = async (kind: 'fresh' | 'more') => {
     setLoading(kind)
@@ -238,11 +246,11 @@ function History(props: { path: string; branch?: string }) {
       const page = await api<DirSessions>(`/dir/sessions?path=${encodeURIComponent(props.path)}&offset=${offset}`)
       if (kind === 'fresh') {
         firstPages.set(props.path, page)
-        setList(page.sessions)
+        setList(keep(page.sessions))
       } else {
         // 翻页期间有新会话时 offset 会错开，按 id 去重
         const seen = new Set(list().map((d) => d.id))
-        setList([...list(), ...page.sessions.filter((d) => !seen.has(d.id))])
+        setList([...list(), ...keep(page.sessions).filter((d) => !seen.has(d.id))])
       }
       setMore(page.more)
     } catch (e) {
@@ -254,9 +262,40 @@ function History(props: { path: string; branch?: string }) {
   // load 一开始就写信号，组件体里不能写，挂上之后再取
   onSettled(() => void load('fresh'))
 
+  // 正在跑的服务端会先中断它
+  const remove = async (d: DirSession) => {
+    const busy = (byId().get(d.id)?.state ?? 'idle') !== 'idle'
+    if (!confirm(`删除「${d.title}」？对话记录一起删掉，找不回来。${busy ? '\nClaude 正在运行，会先中断。' : ''}`)) return
+    setRemoving(d.id)
+    setError('')
+    try {
+      await removeSession(d.id)
+    } catch (e) {
+      // 别处已经删了的（404）照样从列表里拿掉
+      if (!(e instanceof ApiError) || e.status !== 404) {
+        setError(errorText(e))
+        return
+      }
+    } finally {
+      setRemoving(undefined)
+    }
+    removed.add(d.id)
+    setList(keep(list()))
+    const first = firstPages.get(props.path)
+    if (first) firstPages.set(props.path, { ...first, sessions: keep(first.sessions) })
+    if (!list().length) setEditing(false)
+  }
+
   return (
     <section class="mt-2">
-      <h2 class="mb-2 text-xs font-medium tracking-wide text-neutral-500">历史会话</h2>
+      <div class="mb-2 flex items-center justify-between">
+        <h2 class="text-xs font-medium tracking-wide text-neutral-500">历史会话</h2>
+        <Show when={list().length}>
+          <button onClick={() => setEditing(!editing())} class="-my-2 -mr-2 px-2 py-2 text-xs text-neutral-400">
+            {editing() ? '完成' : '编辑'}
+          </button>
+        </Show>
+      </div>
       <Show when={list().length}>
         <ul class="divide-y divide-neutral-800 rounded-xl border border-neutral-800">
           <For each={list()}>
@@ -264,8 +303,8 @@ function History(props: { path: string; branch?: string }) {
               const s = (): SessionInfo | undefined => byId().get(d.id)
               const branch = () => (d.branch && d.branch !== 'HEAD' && d.branch !== props.branch ? d.branch : '')
               return (
-                <li>
-                  <button onClick={() => go.session(d.id)} class="flex w-full flex-col gap-1 px-3 py-2.5 text-left">
+                <li class="flex">
+                  <button onClick={() => go.session(d.id)} class="flex min-w-0 flex-1 flex-col gap-1 px-3 py-2.5 text-left">
                     <div class="flex items-baseline justify-between gap-2">
                       <span class="truncate">{d.title}</span>
                       <span class="shrink-0 text-xs text-neutral-500">{ago(d.lastModified)}</span>
@@ -279,6 +318,16 @@ function History(props: { path: string; branch?: string }) {
                       </div>
                     </Show>
                   </button>
+                  {/* 终端里开着的归终端管，不能删 */}
+                  <Show when={editing() && !s()?.terminal}>
+                    <button
+                      onClick={() => void remove(d)}
+                      disabled={!!removing()}
+                      class="shrink-0 px-4 text-sm text-red-400 active:bg-neutral-800 disabled:opacity-40"
+                    >
+                      {removing() === d.id ? '删除中…' : '删除'}
+                    </button>
+                  </Show>
                 </li>
               )
             }}
