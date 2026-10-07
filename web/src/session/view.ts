@@ -27,8 +27,8 @@ export type Item =
   | { kind: 'thinking'; key: string; text: string }
   | ToolItem
   | { kind: 'result'; key: string; ok: boolean; text: string }
-  /** mono：命令的输出，等宽、限高 */
-  | { kind: 'note'; key: string; text: string; tone: 'muted' | 'error'; mono?: boolean }
+  /** mono：命令的输出，等宽，长了收起；fold：CLI 替人补进对话的长文，默认收起 */
+  | { kind: 'note'; key: string; text: string; tone: 'muted' | 'error'; mono?: boolean; fold?: boolean }
 
 export type TodoStatus = 'pending' | 'in_progress' | 'completed'
 
@@ -174,6 +174,21 @@ export function applyEvents(v: View, envs: EventEnvelope[]): View {
     else if (isError) todos = todos.filter((_, i) => i !== idx)
   }
 
+  // CLI 替人补进对话的（isSynthetic）：Skill 工具的结果只是「Launching skill」，正文是紧跟着的这条，并进那个工具条目；
+  // 别的收起来显示。transcript 里它是 meta 消息，读不出来
+  const onSynthetic = (content: unknown, key: string) => {
+    const text = contentBlocks(content)
+      .filter((b) => b.type === 'text')
+      .map((b) => String(b.text))
+      .join('\n\n')
+      .trim()
+    if (!text) return
+    const last = items.at(-1)
+    if (last?.kind === 'tool' && last.name === 'Skill' && last.output?.startsWith('Launching skill')) {
+      items[items.length - 1] = { ...last, output: text }
+    } else items.push({ kind: 'note', key, text, tone: 'muted', fold: true })
+  }
+
   const onSdk = (msg: SDKMessage, key: string) => {
     switch (msg.type) {
       case 'assistant': {
@@ -197,6 +212,7 @@ export function applyEvents(v: View, envs: EventEnvelope[]): View {
       case 'user': {
         if ('isReplay' in msg && msg.isReplay) return
         const parent = msg.parent_tool_use_id
+        if (msg.isSynthetic) return parent ? undefined : onSynthetic(msg.message.content, key)
         contentBlocks(msg.message.content).forEach((b, i) => {
           if (b.type === 'tool_result') {
             const id = String(b.tool_use_id)
@@ -236,7 +252,7 @@ export function applyEvents(v: View, envs: EventEnvelope[]): View {
       }
       case 'system': {
         // init / status 里的模型、权限模式由服务端记在 SessionInfo 里
-        const note = (text: string, tone: 'muted' | 'error' = 'muted') => items.push({ kind: 'note', key, text, tone })
+        const note = (text: string, tone: 'muted' | 'error' = 'muted', mono?: boolean) => items.push({ kind: 'note', key, text, tone, mono })
         switch (msg.subtype) {
           case 'status':
             compacting = msg.status === 'compacting'
@@ -247,7 +263,8 @@ export function applyEvents(v: View, envs: EventEnvelope[]): View {
             return note(`对话已压缩（${m.trigger === 'auto' ? '自动' : '手动'} · 压缩前 ${tokens(m.pre_tokens)} tokens）`)
           }
           case 'local_command_output':
-            return note(msg.content)
+            // 与 transcript 里读出的本地命令输出一样按命令输出显示（/context 这类很长）
+            return note(msg.content, 'muted', true)
           case 'api_retry':
             return note(`API 重试 ${msg.attempt}/${msg.max_retries}${msg.error_status ? `（${msg.error_status}）` : ''}`)
           case 'informational':

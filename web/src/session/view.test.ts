@@ -110,4 +110,26 @@ describe('applyEvents', () => {
     ])
     expect(feed({ type: 'system', subtype: 'status', status: 'compacting' }).compacting).toBe(true)
   })
+
+  test('CLI 补进对话的：Skill 的正文并进工具条目，别的收起；本地命令输出按命令输出显示', () => {
+    const synthetic = (text: string, parent: string | null = null) => ({
+      type: 'user',
+      isSynthetic: true,
+      parent_tool_use_id: parent,
+      message: { content: [{ type: 'text', text }] },
+    })
+    const v = feed(
+      toolUse('s1', 'Skill', { skill: 'find-skills' }),
+      toolResult('s1', 'Launching skill: find-skills'),
+      synthetic('Base directory for this skill: /x\n\n# Find Skills'),
+      synthetic('别的补充'),
+      synthetic('子代理里的', 'a1'),
+      { type: 'system', subtype: 'local_command_output', content: 'Total cost: $0.1' },
+    )
+    expect(tool(v, 's1')).toMatchObject({ status: 'ok', output: 'Base directory for this skill: /x\n\n# Find Skills' })
+    expect(v.items.slice(1)).toMatchObject([
+      { kind: 'note', text: '别的补充', fold: true },
+      { kind: 'note', text: 'Total cost: $0.1', mono: true },
+    ])
+  })
 })

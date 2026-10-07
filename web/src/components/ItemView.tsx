@@ -268,9 +268,14 @@ function PlanCard(props: { item: ToolItem }) {
   )
 }
 
-/** 人输入的那条。能回退时点一下露出「回退到这里」 */
+/** 人输入的长消息（贴的日志、大段文字）收起时只显示开头 */
+const longInput = (text: string) => text.length > 500 || text.split('\n').length > 10
+const inputHead = (text: string) => `${text.split('\n').slice(0, 6).join('\n').slice(0, 240).trimEnd()}…`
+
+/** 人输入的那条。能回退时点一下露出「回退到这里」；长的默认收起 */
 function UserBubble(props: { item: UserItem } & OnRewind) {
   const [open, setOpen] = createSignal(false)
+  const [full, setFull] = createSignal(false)
   const rewind = () => (props.item.uuid ? props.onRewind : undefined)
   return (
     <div class="flex flex-col items-end gap-1">
@@ -279,7 +284,18 @@ function UserBubble(props: { item: UserItem } & OnRewind) {
         class="max-w-[85%] rounded-2xl rounded-br-md bg-neutral-800 px-3.5 py-2 whitespace-pre-wrap"
       >
         <Show when={props.item.images}>{(n) => <div class="text-sm text-neutral-400">［{n()} 张图片］</div>}</Show>
-        {props.item.text}
+        {longInput(props.item.text) && !full() ? inputHead(props.item.text) : props.item.text}
+        <Show when={longInput(props.item.text)}>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setFull(!full())
+            }}
+            class="mt-1 block text-xs text-neutral-400"
+          >
+            {full() ? '收起' : '展开全文'}
+          </button>
+        </Show>
       </div>
       <Show when={open() && rewind()}>
         <button
@@ -291,6 +307,29 @@ function UserBubble(props: { item: UserItem } & OnRewind) {
         >
           ↶ 回退到这里
         </button>
+      </Show>
+    </div>
+  )
+}
+
+/** 命令输出超过几行就收起（! cat 一个文件、/context） */
+const long = (text: string) => text.length > 300 || text.split('\n').length > 3
+
+/** 收起的长文：一行是首行和行数，点开看全文 */
+function Folded(props: { text: string }) {
+  const [open, setOpen] = createSignal(false)
+  const lines = () => props.text.split('\n')
+  return (
+    <div>
+      <button onClick={() => setOpen(!open())} class="flex w-full items-center gap-2 py-1 text-left font-mono text-xs text-neutral-500">
+        <span class="w-3 shrink-0 text-center">{open() ? '▾' : '▸'}</span>
+        <span class="min-w-0 flex-1 truncate">{lines().find((l) => l.trim())}</span>
+        <span class="shrink-0 text-neutral-600">{lines().length} 行</span>
+      </button>
+      <Show when={open()}>
+        <div class="mt-1 mb-2">
+          <Pre>{props.text}</Pre>
+        </div>
       </Show>
     </div>
   )
@@ -326,6 +365,7 @@ function view(item: Item, sub: Record<string, Item[]>, p: OnRewind) {
     case 'result':
       return <p class={`py-1 text-center text-xs ${item.ok ? 'text-neutral-500' : 'text-red-400'}`}>{item.text}</p>
     case 'note':
+      if (item.fold || (item.mono && long(item.text))) return <Folded text={item.text} />
       if (item.mono)
         return (
           <pre class="max-h-64 overflow-auto rounded-lg bg-neutral-900 px-2.5 py-1.5 font-mono text-xs break-all whitespace-pre-wrap text-neutral-400">
