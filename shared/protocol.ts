@@ -166,6 +166,17 @@ export interface DirEntry {
   branch?: string
 }
 
+/** POST /api/fs/mkdir：在 parent 下建一层文件夹，返回 DirEntry */
+export interface MkdirBody {
+  parent: string
+  name: string
+}
+
+/** POST /api/fs/rm：删目录连同里面的所有东西 */
+export interface RmdirBody {
+  path: string
+}
+
 /** GET /api/fs/ls?path=&hidden=1 */
 export interface FsList {
   /** 配置里允许浏览的目录（真实路径） */

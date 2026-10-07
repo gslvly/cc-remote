@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createSignal, For, isPending, Loading, Show } from 'solid-js'
-import type { FsList } from '../../../shared/protocol'
+import type { DirEntry, FsList, MkdirBody, RmdirBody } from '../../../shared/protocol'
 import { api } from '../api'
 import { basename, crumbs, errorText, rootLabel } from '../format'
 import { afterPaint } from '../frame'
@@ -36,13 +36,38 @@ export function DirBrowser(props: { favorites: Set<string> }) {
     hidden: localStorage.getItem(HIDDEN_KEY) === '1',
   })
   const [filter, setFilter] = createSignal('')
+  /** 新建、删除失败的原因；换目录时清掉 */
+  const [opError, setOpError] = createSignal('')
   // 连点几下时 memo 只采用最后一次的结果
   const shown = createMemo((prev?: Shown) => open(target(), prev?.list))
   let nav: HTMLElement | undefined
 
   const enter = (path: string | null) => {
     setFilter('')
+    setOpError('')
     setTarget({ path, hidden: target().hidden })
+  }
+
+  // 建好直接进去，接着就能在里面开会话
+  const makeDir = async (parent: string) => {
+    const name = prompt('新文件夹的名字')?.trim()
+    if (!name) return
+    try {
+      enter((await api<DirEntry>('/fs/mkdir', { parent, name } satisfies MkdirBody)).path)
+    } catch (e) {
+      setOpError(errorText(e))
+    }
+  }
+
+  // 删完回上一级
+  const removeDir = async (path: string, parent: string | null) => {
+    if (!confirm(`删除「${basename(path)}」和里面的所有文件？删了找不回来。`)) return
+    try {
+      await api('/fs/rm', { path } satisfies RmdirBody)
+      enter(parent)
+    } catch (e) {
+      setOpError(errorText(e))
+    }
   }
 
   const toggleHidden = () => {
@@ -62,6 +87,11 @@ export function DirBrowser(props: { favorites: Set<string> }) {
       <Show when={shown().list} fallback={<p class="text-sm text-red-400">{shown().error}</p>}>
         {(cur) => {
           const trail = createMemo(() => crumbs(cur()))
+          /** 当前目录能删就是它的路径：root 本身不能删 */
+          const removable = () => {
+            const p = cur().path
+            return p && !cur().roots.includes(p) ? p : undefined
+          }
           // 记住位置；路径长时面包屑横向滚到最右，露出当前目录。等新目录画出来再滚，见 afterPaint
           createEffect(
             () => cur().path,
@@ -115,10 +145,20 @@ export function DirBrowser(props: { favorites: Set<string> }) {
                 >
                   显示隐藏
                 </button>
+                <Show when={cur().path}>
+                  {(path) => (
+                    <button
+                      onClick={() => makeDir(path())}
+                      class="shrink-0 rounded-lg border border-neutral-800 px-3 text-sm text-neutral-300 active:bg-neutral-800"
+                    >
+                      新建
+                    </button>
+                  )}
+                </Show>
               </div>
 
-              <Show when={shown().error}>
-                <p class="text-sm text-red-400">{shown().error}</p>
+              <Show when={shown().error || opError()}>
+                {(error) => <p class="text-sm text-red-400">{error()}</p>}
               </Show>
 
               <Show
@@ -149,6 +189,17 @@ export function DirBrowser(props: { favorites: Set<string> }) {
                     )}
                   </For>
                 </ul>
+              </Show>
+
+              <Show when={removable()}>
+                {(path) => (
+                  <button
+                    onClick={() => removeDir(path(), trail()[trail().length - 2]?.path ?? null)}
+                    class="self-start rounded px-1 py-0.5 text-sm text-red-400 active:bg-neutral-800"
+                  >
+                    删除这个文件夹
+                  </button>
+                )}
               </Show>
 
               <Show when={cur().path}>

@@ -6,11 +6,9 @@ import { type SSEMessage, streamSSE } from 'hono/streaming'
 import type {
   BashBody,
   CreateSessionBody,
-  DirEntry,
   DirInfo,
   DirSessions,
   FavoriteBody,
-  FsList,
   ImageAttachment,
   PermissionDecisionBody,
   RecentDir,
@@ -26,7 +24,8 @@ import { catalog, CLEAR_COMMAND } from './catalog'
 import { createAuth } from './auth'
 import { CONFIG_DIR, CONFIG_FILE, loadConfig, localIPv4s, resolveRoots, waitForHost } from './config'
 import { Favorites } from './favorites'
-import { checkDir, dirEntry, gitBranch, listDirs, within } from './fs'
+import { checkDir, dirEntry, gitBranch, within } from './fs'
+import { fsRoutes } from './fsRoutes'
 import { LimitError, SessionManager } from './manager'
 import { pusher } from './push'
 import { ConflictError, type EventId } from './session'
@@ -164,23 +163,11 @@ api.get('/recent', async (c) => {
   return c.json(dirs)
 })
 
-// 选目录：只列子目录，限定在 roots 内。不给 path 时：只有一个 root 就列它，有多个就列出各个 root
-api.get('/fs/ls', async (c) => {
-  const hidden = c.req.query('hidden') === '1'
-  const path = c.req.query('path') || (roots.length === 1 ? roots[0] : undefined)
-  if (!path) return c.json<FsList>({ roots, path: null, entries: await Promise.all(roots.map((r) => dirEntry(r, r))) })
-
-  const dir = await checkDir(path, roots)
-  if (!dir.ok) return c.json({ error: dir.error }, dir.status)
-  let entries: DirEntry[]
-  try {
-    entries = await listDirs(dir.path, roots, hidden)
-  } catch (e) {
-    // macOS 隐私保护的目录（Library 下的一些）、没权限的目录
-    return c.json({ error: `读不了这个目录：${(e as NodeJS.ErrnoException).code ?? e}` }, 403)
-  }
-  return c.json<FsList>({ roots, path: dir.path, branch: await gitBranch(dir.path), entries })
-})
+// 选目录：列子目录、新建 / 删文件夹。正在跑的会话所在的目录不让删
+api.route(
+  '/fs',
+  fsRoutes(roots, (dir) => sessions.list().some((s) => s.state !== 'idle' && within(s.cwd, dir))),
+)
 
 // 目录页：分支、是否收藏
 api.get('/dir', async (c) => {

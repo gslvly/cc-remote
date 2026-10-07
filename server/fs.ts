@@ -1,5 +1,5 @@
 // 选目录用：只看目录、只在 roots 内。不是文件浏览器，不读文件内容（除了 .git/HEAD 取分支）
-import { readdir, readFile, realpath, stat } from 'node:fs/promises'
+import { lstat, mkdir, readdir, readFile, realpath, rm, stat } from 'node:fs/promises'
 import path, { basename, isAbsolute, join, resolve } from 'node:path'
 import type { DirEntry } from '../shared/protocol'
 
@@ -14,15 +14,52 @@ export const inRoots = (real: string, roots: string[], p: typeof path = path) =>
 
 const isDir = (p: string) => stat(p).then((s) => s.isDirectory(), () => false)
 
-export type DirCheck = { ok: true; path: string } | { ok: false; status: 400 | 403 | 404; error: string }
+type Fail = { ok: false; status: 400 | 403 | 404 | 409; error: string }
+export type DirCheck = { ok: true; path: string } | Fail
+const fail = (status: Fail['status'], error: string): Fail => ({ ok: false, status, error })
+const code = (e: unknown) => (e as NodeJS.ErrnoException).code ?? String(e)
 
 /** 把前端给的路径解析成真实路径（跟随符号链接、消掉 ..），确认是目录且在 roots 内 */
 export async function checkDir(p: unknown, roots: string[]): Promise<DirCheck> {
   if (typeof p !== 'string' || !isAbsolute(p)) return { ok: false, status: 400, error: '要给绝对路径' }
   const real = await realpath(p).catch(() => '')
-  if (!real || !(await isDir(real))) return { ok: false, status: 404, error: '目录不存在' }
-  if (!inRoots(real, roots)) return { ok: false, status: 403, error: '目录不在 roots 内（见 ~/.cc-remote/config.json）' }
+  if (!real || !(await isDir(real))) return fail(404, '目录不存在')
+  if (!inRoots(real, roots)) return fail(403, '目录不在 roots 内（见 ~/.cc-remote/config.json）')
   return { ok: true, path: real }
+}
+
+/** 在 parent 下建一层文件夹。名字不能带分隔符、不能是 . 和 ..；已有同名的就报错，不覆盖 */
+export async function makeDir(parent: unknown, name: unknown, roots: string[]): Promise<DirCheck> {
+  const dir = await checkDir(parent, roots)
+  if (!dir.ok) return dir
+  const n = typeof name === 'string' ? name.trim() : ''
+  if (!n) return fail(400, '名字不能为空')
+  if (n === '.' || n === '..' || /[/\\\0]/.test(n)) return fail(400, '名字里不能有 / 和 \\，也不能是 . 或 ..')
+  const path = join(dir.path, n)
+  try {
+    await mkdir(path)
+  } catch (e) {
+    return code(e) === 'EEXIST' ? fail(409, '已有同名的文件或文件夹') : fail(403, `建不了：${code(e)}`)
+  }
+  return { ok: true, path }
+}
+
+/**
+ * 删目录连同里面的所有东西。不删：配置的 root（及包含 root 的目录）、符号链接（免得删到链接指向的目录）、
+ * busy 为真的（有会话正在里面跑）
+ */
+export async function removeDir(p: unknown, roots: string[], busy: (dir: string) => boolean): Promise<DirCheck> {
+  const dir = await checkDir(p, roots)
+  if (!dir.ok) return dir
+  if (roots.some((r) => within(r, dir.path))) return fail(403, '这是 roots 里配置的目录，不能删')
+  if ((await lstat(p as string)).isSymbolicLink()) return fail(400, '这是符号链接，不删')
+  if (busy(dir.path)) return fail(409, '有会话正在这个目录里跑，先停掉再删')
+  try {
+    await rm(dir.path, { recursive: true })
+  } catch (e) {
+    return fail(403, `删不了：${code(e)}`)
+  }
+  return dir
 }
 
 /** git 仓库的当前分支；detached HEAD 时返回短 commit。worktree / submodule 的 .git 是个文件，指向真正的 gitdir */
