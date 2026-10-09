@@ -50,7 +50,7 @@ export function RewindSheet(props: {
             取消
           </button>
         </div>
-        <p class="mt-2 line-clamp-3 rounded-lg bg-neutral-800 px-3 py-2 text-sm whitespace-pre-wrap text-neutral-300">{props.text}</p>
+        <p class="mt-2 line-clamp-3 rounded-lg bg-neutral-800 px-3 py-2 text-sm whitespace-pre-wrap wrap-anywhere text-neutral-300">{props.text}</p>
         <Errored fallback={(err) => <p class="mt-3 text-sm text-red-400">{errorText(err())}</p>}>
           <Loading fallback={<p class="mt-3 text-sm text-neutral-500">看看要还原哪些文件…</p>}>
             <div class="mt-3 space-y-2 text-sm">

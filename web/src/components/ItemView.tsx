@@ -229,7 +229,7 @@ function AgentCard(props: { item: ToolItem; sub: Record<string, Item[]> }) {
         <div class="space-y-2 border-t border-neutral-800 px-3 py-2">
           <details class="text-xs text-neutral-500">
             <summary class="cursor-pointer select-none">交给它的任务</summary>
-            <p class="mt-1 whitespace-pre-wrap">{str(props.item.input.prompt)}</p>
+            <p class="mt-1 whitespace-pre-wrap wrap-anywhere">{str(props.item.input.prompt)}</p>
           </details>
           <For each={children()}>{(c) => <ItemView item={c} sub={props.sub} />}</For>
           <Show when={props.item.summary}>
@@ -281,7 +281,7 @@ function UserBubble(props: { item: UserItem } & OnRewind) {
     <div class="flex flex-col items-end gap-1">
       <div
         onClick={() => rewind() && setOpen(!open())}
-        class="max-w-[85%] rounded-2xl rounded-br-md bg-neutral-800 px-3.5 py-2 whitespace-pre-wrap"
+        class="max-w-[85%] rounded-2xl rounded-br-md bg-neutral-800 px-3.5 py-2 whitespace-pre-wrap wrap-anywhere"
       >
         <Show when={props.item.images}>{(n) => <div class="text-sm text-neutral-400">［{n()} 张图片］</div>}</Show>
         {longInput(props.item.text) && !full() ? inputHead(props.item.text) : props.item.text}
@@ -355,7 +355,7 @@ function view(item: Item, sub: Record<string, Item[]>, p: OnRewind) {
       return (
         <details class="text-xs text-neutral-500">
           <summary class="cursor-pointer select-none">思考</summary>
-          <p class="mt-1 whitespace-pre-wrap">{item.text}</p>
+          <p class="mt-1 whitespace-pre-wrap wrap-anywhere">{item.text}</p>
         </details>
       )
     case 'tool':
@@ -373,7 +373,7 @@ function view(item: Item, sub: Record<string, Item[]>, p: OnRewind) {
           </pre>
         )
       return (
-        <p class={`text-xs whitespace-pre-wrap ${item.tone === 'error' ? 'text-red-400' : 'text-neutral-500'}`}>
+        <p class={`text-xs whitespace-pre-wrap wrap-anywhere ${item.tone === 'error' ? 'text-red-400' : 'text-neutral-500'}`}>
           {item.text}
         </p>
       )
