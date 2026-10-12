@@ -111,7 +111,10 @@ export function DirBrowser(props: { favorites: Set<string> }) {
                         <button onClick={() => enter(c.path)} class="rounded px-1 py-0.5 text-neutral-400 active:bg-neutral-800">
                           {c.label}
                         </button>
-                        <span class="text-neutral-600">/</span>
+                        {/* root 是 /、D:\ 这种自带分隔符的，不再补一个，不然显示成「/ / usr」 */}
+                        <Show when={!/[\\/]$/.test(c.label)}>
+                          <span class="text-neutral-600">/</span>
+                        </Show>
                       </span>
                     </Show>
                   )}
