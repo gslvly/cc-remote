@@ -12,10 +12,11 @@
     "start": "bun server/index.ts",
     "typecheck": "tsc -p server/tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit && tsc -p scripts/tsconfig.json --noEmit",
     "test": "bun test server web",
-    "check": "bun run typecheck && bun test server web"
+    "check": "bun run typecheck && bun test server web",
+    "sdk:sync": "bun scripts/sdk-sync.ts"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.282",
+    "@anthropic-ai/claude-agent-sdk": "0.3.296",
     "hono": "^4.13.9"
   },
   "devDependencies": {

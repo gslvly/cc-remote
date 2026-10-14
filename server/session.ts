@@ -48,6 +48,8 @@ export class Session implements RunHost {
   /** 加进本服务端的时间（标签按它排） */
   readonly createdAt = Date.now()
   lastActivity: number
+  /** 用户最后一次发消息（缓冲里的 user_input；没人看的终端会话按它从空闲转忙的时间估） */
+  lastPromptAt: number
   title: string
   model?: string
   permissionMode?: PermissionMode
@@ -91,6 +93,7 @@ export class Session implements RunHost {
     this.title = title
     this.spawned = !opts.fresh
     this.lastActivity = opts.lastActivity ?? Date.now()
+    this.lastPromptAt = this.lastActivity
   }
 
   get epoch() {
@@ -133,6 +136,7 @@ export class Session implements RunHost {
       state: this.state,
       createdAt: this.createdAt,
       lastActivity: this.lastActivity,
+      lastPromptAt: this.lastPromptAt,
       pendingPermissions: this.run?.approvals.size ?? 0,
       live: this.live,
       owned: this.owned,
@@ -214,6 +218,9 @@ export class Session implements RunHost {
   setHolder(h: Holder | undefined) {
     if (h) {
       const changed = this.terminal !== 'running' || this.terminalStatus !== h.status
+      // 从空闲转忙，多半是终端里发了消息（没人看时不读 transcript，只能这样估；等批准后接着跑的不算）
+      const prompted = (this.terminal !== 'running' || this.state === 'idle') && TERMINAL_STATE[h.status ?? ''] === 'running'
+      if (prompted && h.updatedAt > this.lastPromptAt) this.lastPromptAt = h.updatedAt
       this.terminal = 'running'
       this.terminalStatus = h.status
       // 终端 resume 的是整条链，回退作废；它写的从截断处接着补
@@ -451,6 +458,7 @@ export class Session implements RunHost {
   private record(ev: SessionEvent, at = Date.now()): EventEnvelope {
     const env = this.buffer.add(ev, at)
     if (at > this.lastActivity) this.lastActivity = at
+    if (ev.type === 'user_input' && at > this.lastPromptAt) this.lastPromptAt = at
     if (ev.type === 'sdk' && ev.msg.type === 'assistant' && !ev.msg.parent_tool_use_id) {
       const { message } = ev.msg
       this.usage.update(message, at)

@@ -120,11 +120,16 @@ Config file `~/.cc-remote/config.json` (generated on first start; mode 600 on ma
     "bark": { "key": "<device key from the Bark app>" },
     "ntfy": { "topic": "<hard-to-guess topic>", "server": "https://ntfy.sh" }
   },
-  "publicUrl": "http://192.168.1.8:8686" // deep-link prefix for push; defaults to the first address in the startup log
+  "publicUrl": "http://192.168.1.8:8686", // deep-link prefix for push; defaults to the first address in the startup log
+  "claude": "~/.local/bin/claude" // path to your local claude; looked up on PATH if omitted
 }
 ```
 
 Configure Bark, ntfy or both; with neither, no push is sent. Omit `server` to use the public service.
+
+Child processes run your local `claude` (the one you use in the terminal), as long as it is the same file as the CLI
+the SDK was built for (its sha256 is listed in the SDK's `manifest.json`). This is checked at startup and whenever the
+file changes; if it doesn't match (e.g. `claude` was upgraded), the SDK's bundled copy is used instead, and the startup log says which one is in use.
 
 ### Network: Let the Phone Reach the Computer
 
@@ -179,6 +184,9 @@ git pull && bun install && bun run build
 
 Restart the service if the server changed (`server/`, `shared/`); for frontend-only changes, the phone
 reloads by itself after the build, no restart needed.
+
+After upgrading `claude`, run `bun run sdk:sync`: it switches the SDK to the matching version (found on npm by
+`claudeCodeVersion`, then checked again to be the same file), then restart the service. `deploy.sh` does this on every deploy.
 
 ## Recommended Server Setup
 

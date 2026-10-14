@@ -2,6 +2,7 @@
 import { type ModelInfo, query, type Query, type SlashCommand } from '@anthropic-ai/claude-agent-sdk'
 import type { Catalog, CatalogCommand } from '../shared/protocol'
 import { childEnv, InputQueue } from './child'
+import { localClaude } from './claudeBin'
 
 /**
  * 列表里有、手机上不该给的。/clear（reset、new）会让子进程换一个会话 id，与这里按 id 管的会话对不上，手机上开新会话用 [+]；
@@ -59,7 +60,7 @@ export function catalog(cwd: string): Promise<Catalog> {
 
 async function probe(cwd: string): Promise<Catalog> {
   const input = new InputQueue()
-  const q = query({ prompt: input, options: { cwd, env: childEnv(), persistSession: false } })
+  const q = query({ prompt: input, options: { ...localClaude.options(), cwd, env: childEnv(), persistSession: false } })
   try {
     await learnCatalog(cwd, q)
     return cache.get(cwd)!

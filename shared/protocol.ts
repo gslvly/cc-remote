@@ -19,6 +19,8 @@ export interface SessionInfo {
   state: SessionState
   createdAt: number
   lastActivity: number
+  /** 用户最后一次发消息的时间。列表按它排，免得几个会话一起跑时随回复上下跳 */
+  lastPromptAt: number
   pendingPermissions: number
   /** 有没有活着的 claude 子进程（空闲超时、到并发上限时会被回收） */
   live: boolean

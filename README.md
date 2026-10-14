@@ -106,11 +106,15 @@ bun run start     # 启动服务端（默认端口 8686）
     "bark": { "key": "<Bark App 的 device key>" },
     "ntfy": { "topic": "<难猜的 topic 名>", "server": "https://ntfy.sh" }
   },
-  "publicUrl": "http://192.168.1.8:8686" // 推送深链接前缀，默认取启动日志里列出的第一个地址
+  "publicUrl": "http://192.168.1.8:8686", // 推送深链接前缀，默认取启动日志里列出的第一个地址
+  "claude": "~/.local/bin/claude" // 本机 claude 的路径，不写就在 PATH 里找
 }
 ```
 
 Bark / ntfy 配一个即可，也可都配；不配就不推送。`server` 不写即用公共服务。
+
+子进程用的是本机的 `claude`（终端里那个），前提是它与 SDK 配套的 CLI 是同一个文件（sha256 在 SDK 的 `manifest.json` 里）。
+启动时和它换了文件时都会核对；对不上（比如 `claude` 升级了）就先用 SDK 自带的那份，启动日志里会写用的是哪个。
 
 ### 网络：手机能连到电脑
 
@@ -160,6 +164,9 @@ git pull && bun install && bun run build
 ```
 
 改了服务端（`server/`、`shared/`）要重启服务；只改了前端，build 完手机页面会自己刷新，不用重启。
+
+`claude` 升级后跑 `bun run sdk:sync`：把 SDK 换成与它配套的版本（在 npm 上按 `claudeCodeVersion` 找，装完再核对一遍是同一个文件），然后重启服务。
+`deploy.sh` 每次部署会自动跑这一步。
 
 ## 推荐的服务端设置
 

@@ -76,7 +76,7 @@ export function Home() {
                       <StateBadge state={s.state} terminal={s.terminal} />
                     </div>
                     <span class="text-xs text-neutral-500">
-                      {basename(s.cwd)} · {ago(s.lastActivity)}
+                      {basename(s.cwd)} · {ago(s.lastPromptAt)}
                     </span>
                   </button>
                 </li>

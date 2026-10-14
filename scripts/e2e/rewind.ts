@@ -33,6 +33,8 @@ await run(
     const dir = testDir('rewind')
     const file = (name: string) => (existsSync(join(dir, name)) ? readFileSync(join(dir, name), 'utf8').trim() : undefined)
     const said = (stream: ReturnType<typeof events>) => inputs(stream).map((i) => i.text)
+    // 输入框旁还有一个量高度用的隐藏 textarea
+    const composer = () => page.locator('textarea:not([aria-hidden])')
     const choices = () => page.locator('button', { hasText: /回退|还原代码/ }).allInnerTexts()
 
     // 1. 三轮改 a.txt
@@ -68,7 +70,7 @@ await run(
     await until('a.txt 回到 two', () => (file('a.txt') === 'two' ? true : undefined), 30_000)
     await until('弹层关了', async () => ((await text()).includes('回退到这条之前') ? undefined : true), 5_000)
     check((await text()).includes(P3), '对话不动，第三条还在')
-    check((await page.locator('textarea').inputValue()) === '', '输入框不填')
+    check((await composer().inputValue()) === '', '输入框不填')
 
     // 3. 只回退对话
     const r3 = await api(`/sessions/${s.id}/rewind`, { uuid: u3!.uuid, restore: 'conversation' })
@@ -82,7 +84,7 @@ await run(
     await page.getByText(P2, { exact: true }).click()
     await page.getByRole('button', { name: '↶ 回退到这里' }).click()
     await page.getByRole('button', { name: '代码和对话都回退' }).click()
-    await until('原文放回输入框', async () => ((await page.locator('textarea').inputValue()) === P2 ? true : undefined), 30_000)
+    await until('原文放回输入框', async () => ((await composer().inputValue()) === P2 ? true : undefined), 30_000)
     await shot('rewind-done')
     check(file('a.txt') === 'one', '现起的子进程也能还原，a.txt 回到 one', file('a.txt'))
     check(said(stream).join('|') === P1, '截到第一轮', said(stream))

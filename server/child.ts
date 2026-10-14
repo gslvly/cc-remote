@@ -1,12 +1,6 @@
 // 起 claude 子进程要用的：参数、环境变量、流式输入
 import type { CanUseTool, EffortLevel, Options, PermissionMode, Query, RewindFilesResult, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
-
-/**
- * 没选模式时交给 CLI 按配置定。SDK 不传 permissionMode 会自己补 `--permission-mode default`，
- * 而 CLI 里命令行参数排在配置的 defaultMode 前面，于是 bypassPermissions 永远不生效。
- * resolvePermissionModeInCli 是 SDK 没写进类型的选项（sdk.mjs 里 `permissionMode ?? (resolvePermissionModeInCli ? undefined : 'default')`）
- */
-const CLI_DECIDES_MODE: {} = { resolvePermissionModeInCli: true }
+import { localClaude } from './claudeBin'
 
 /**
  * 托管会话起子进程的参数。mode、model、effort 是手机上选过、切过的，子进程回收后 resume 也接着用；
@@ -27,6 +21,7 @@ export interface SpawnArgs {
 
 export function spawnOptions(o: SpawnArgs): Options {
   return {
+    ...localClaude.options(),
     cwd: o.cwd,
     // 第一次用预生成的 id 新建；子进程回收或退出后再发消息，就 resume 接着聊（不会重放旧消息）
     ...(o.resume ? { resume: o.id } : { sessionId: o.id }),
@@ -36,7 +31,8 @@ export function spawnOptions(o: SpawnArgs): Options {
     env: childEnv(),
     // 不传时 SDK 发的是空系统提示词，与终端不一致
     systemPrompt: { type: 'preset', preset: 'claude_code' },
-    ...(o.mode ? { permissionMode: o.mode } : CLI_DECIDES_MODE),
+    // 没选模式就不传，CLI 按配置里的 defaultMode 定（SDK 0.3.282 及以前会自己补 default，那时得另传 resolvePermissionModeInCli）
+    ...(o.mode && { permissionMode: o.mode }),
     ...(o.model && { model: o.model }),
     ...(o.effort && { effort: o.effort }),
     // 不带的话配置里的 defaultMode: bypassPermissions 会被 CLI 忽略、退回 default

@@ -140,12 +140,12 @@ export class SessionManager {
     }
   }
 
-  /** 概览流：托管的会话和终端里正在跑的，按最后活动时间倒序 */
+  /** 概览流：托管的会话和终端里正在跑的，按用户最后发消息的时间倒序（按最后活动排，几个会话一起跑时会随回复上下跳） */
   list(): OverviewSessions {
     return [...this.sessions.values()]
       .filter((s) => s.listed)
       .map((s) => s.info())
-      .sort((a, b) => b.lastActivity - a.lastActivity)
+      .sort((a, b) => b.lastPromptAt - a.lastPromptAt)
   }
 
   /** 概览流：有变化就推完整列表，攒 200ms 推一次（每个事件都会更新最后活动时间） */

@@ -152,3 +152,30 @@ describe('终端放手', () => {
     expect(s.info().owned).toBe(true)
   })
 })
+
+describe('用户最后发消息的时间（列表按它排）', () => {
+  const reply = (text: string) =>
+    ({ type: 'sdk', msg: { type: 'assistant', uuid: crypto.randomUUID(), parent_tool_use_id: null, message: { role: 'assistant', content: [{ type: 'text', text }] } } }) as const
+
+  test('只跟着用户输入走，回复只更新最后活动时间', () => {
+    const s = new Session(crypto.randomUUID(), CWD, 't', () => {}, { fresh: false, lastActivity: 1000 })
+    s.push({ type: 'user_input', text: 'hi' }, 2000)
+    s.push(reply('a') as never, 3000)
+    expect(s.info()).toMatchObject({ lastPromptAt: 2000, lastActivity: 3000 })
+  })
+
+  test('没人看的终端会话：从空闲转忙才算发了消息，跑完、等批准后接着跑的不算', () => {
+    const s = new Session(crypto.randomUUID(), CWD, 't', () => {}, { fresh: false, lastActivity: 1000 })
+    const holder = (status: string, updatedAt: number) => s.setHolder({ pid: 1, sessionId: s.id, cwd: CWD, status, updatedAt })
+    holder('idle', 1500)
+    expect(s.lastPromptAt).toBe(1000)
+    holder('busy', 2000)
+    expect(s.lastPromptAt).toBe(2000)
+    holder('waiting', 2500)
+    holder('busy', 3000)
+    holder('idle', 3500)
+    expect(s.info()).toMatchObject({ lastPromptAt: 2000, lastActivity: 3500 })
+    holder('shell', 4000)
+    expect(s.lastPromptAt).toBe(4000)
+  })
+})

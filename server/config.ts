@@ -18,6 +18,8 @@ export interface Config {
   push?: PushConfig
   /** 推送里深链接的前缀，默认 http://<监听地址>:<端口> */
   publicUrl?: string
+  /** 本机 claude 的路径，可以用 ~ 开头；不写就在 PATH 里找。与 SDK 配套的不是同一个文件时用 SDK 自带的（见 claudeBin.ts） */
+  claude?: string
 }
 
 export interface PushConfig {
@@ -106,12 +108,16 @@ export async function waitForHost(host: string, find = tailscaleIPv4, intervalMs
   }
 }
 
+export function expandHome(p: string): string {
+  return /^~($|[\\/])/.test(p) ? join(homedir(), p.slice(1)) : p
+}
+
 /** 展开 ~，解析成真实路径（macOS 的 /tmp 实际是 /private/tmp），不存在的跳过 */
 export function resolveRoots(roots: string[]): string[] {
   if (!Array.isArray(roots)) throw new Error(`${CONFIG_FILE} 里的 roots 要写成数组`)
   const out: string[] = []
   for (const r of roots) {
-    const p = /^~($|[\\/])/.test(r) ? join(homedir(), r.slice(1)) : r
+    const p = expandHome(r)
     try {
       if (!isAbsolute(p)) throw new Error('要写绝对路径或 ~ 开头')
       const real = realpathSync(p)

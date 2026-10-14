@@ -22,7 +22,8 @@ import type {
 } from '../shared/protocol'
 import { catalog, CLEAR_COMMAND } from './catalog'
 import { createAuth } from './auth'
-import { CONFIG_DIR, CONFIG_FILE, loadConfig, localIPv4s, resolveRoots, waitForHost } from './config'
+import { localClaude } from './claudeBin'
+import { CONFIG_DIR, CONFIG_FILE, expandHome, loadConfig, localIPv4s, resolveRoots, waitForHost } from './config'
 import { Favorites } from './favorites'
 import { checkDir, dirEntry, gitBranch, within } from './fs'
 import { fsRoutes } from './fsRoutes'
@@ -44,6 +45,7 @@ if (!process.stdout.isTTY) {
 const { config, created } = loadConfig()
 const auth = createAuth(config.token)
 const roots = resolveRoots(config.roots)
+localClaude.configure(config.claude ? expandHome(config.claude) : undefined)
 const sessions = new SessionManager({ maxLive: config.maxLive, idleMinutes: config.idleMinutes, roots })
 const favorites = new Favorites()
 const webPush = new WebPush(join(CONFIG_DIR, 'webpush.json'))
@@ -464,6 +466,7 @@ console.log(`[cc-remote] 监听${anyHost ? '所有网卡' : ''} ${urls.join('、
 if (anyHost) console.log('[cc-remote] 同一局域网 / 组网里的设备都能打开登录页，token 别外泄；只想在某个网卡上听，就把 host 写成它的 IP')
 console.log(`[cc-remote] roots：${roots.join('、') || '（无）'}`)
 console.log(`[cc-remote] 并发上限 ${config.maxLive}，空闲 ${config.idleMinutes} 分钟回收子进程`)
+console.log(`[cc-remote] claude：${localClaude.describe()}`)
 // 听所有网卡时取第一个网卡地址，不对就在配置里写 publicUrl
 const publicUrl = config.publicUrl || urls[0] || `http://127.0.0.1:${server.port}`
 pusher.configure(config.push, publicUrl, webPush)
