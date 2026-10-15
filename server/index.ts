@@ -23,12 +23,13 @@ import type {
 import { catalog, CLEAR_COMMAND } from './catalog'
 import { createAuth } from './auth'
 import { localClaude } from './claudeBin'
-import { CONFIG_DIR, CONFIG_FILE, expandHome, loadConfig, localIPv4s, resolveRoots, waitForHost } from './config'
+import { CONFIG_DIR, CONFIG_FILE, expandHome, loadConfig, resolveRoots, waitForHost } from './config'
 import { Favorites } from './favorites'
 import { checkDir, dirEntry, gitBranch, within } from './fs'
 import { fsRoutes } from './fsRoutes'
 import { LimitError, SessionManager } from './manager'
 import { pusher } from './push'
+import { listenUrls, printLoginQr } from './qr'
 import { ConflictError, type EventId } from './session'
 import { isEmpty, titleOf } from './transcript'
 import { quota } from './usage'
@@ -461,7 +462,7 @@ const server = Bun.serve({
 })
 
 const anyHost = hostname === '0.0.0.0'
-const urls = (anyHost ? localIPv4s() : [hostname]).map((ip) => `http://${ip}:${server.port}`)
+const urls = listenUrls(hostname, server.port ?? config.port)
 console.log(`[cc-remote] 监听${anyHost ? '所有网卡' : ''} ${urls.join('、') || `http://127.0.0.1:${server.port}`}`)
 if (anyHost) console.log('[cc-remote] 同一局域网 / 组网里的设备都能打开登录页，token 别外泄；只想在某个网卡上听，就把 host 写成它的 IP')
 console.log(`[cc-remote] roots：${roots.join('、') || '（无）'}`)
@@ -473,7 +474,9 @@ pusher.configure(config.push, publicUrl, webPush)
 const targets = Object.keys(config.push ?? {})
 console.log(`[cc-remote] 推送：${targets.length ? `${targets.join('、')}，深链接 ${publicUrl}/#/s/<id>` : '没配'}；网页推送 ${webPush.count} 台设备`)
 if (created) console.log(`[cc-remote] 已生成配置 ${CONFIG_FILE}\n[cc-remote] 登录 token：${config.token}`)
-else console.log(`[cc-remote] 登录 token 见 ${CONFIG_FILE}`)
+else console.log(`[cc-remote] 登录 token 见 ${CONFIG_FILE}，登录二维码用 bun run qr 出`)
+// 只在首次启动、终端前台跑时打码：之后重启不刷屏，后台服务的日志里也不留；要再出码用 bun run qr
+if (created && process.stdout.isTTY) printLoginQr(publicUrl, config.token, urls)
 // 防睡眠、开机自启都由用户按自己的系统配，服务端不管
 console.log('[cc-remote] 提示：电脑睡着了手机就连不上，要随时能连请在系统设置里关掉自动睡眠（见 README「需要你自己配的」）')
 

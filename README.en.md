@@ -101,8 +101,10 @@ bun run build     # build the frontend
 bun run start     # start the server (default port 8686)
 ```
 
-The first start generates the config and prints the login token and this machine's addresses. For
-long-term use, continue with "Recommended Server Setup".
+The first start generates the config and prints the login token, this machine's addresses and a login QR
+code — scan it with the phone camera and you're logged in (the code contains the token, don't let anyone
+photograph it). To log in another device later, print one any time with `bun run qr`, or `bun run qr <IP>` for
+another address. For long-term use, continue with "Recommended Server Setup".
 
 ### Configuration
 
@@ -120,7 +122,7 @@ Config file `~/.cc-remote/config.json` (generated on first start; mode 600 on ma
     "bark": { "key": "<device key from the Bark app>" },
     "ntfy": { "topic": "<hard-to-guess topic>", "server": "https://ntfy.sh" }
   },
-  "publicUrl": "http://192.168.1.8:8686", // deep-link prefix for push; defaults to the first address in the startup log
+  "publicUrl": "http://192.168.1.8:8686", // deep-link prefix for push and the login QR code; defaults to the first address in the startup log
   "claude": "~/.local/bin/claude" // path to your local claude; looked up on PATH if omitted
 }
 ```
@@ -152,7 +154,8 @@ phone gets there is up to you — cc-remote isn't tied to any networking tool:
 
 ### On Your Phone
 
-1. Open an address from the startup log (`http://<computer IP>:8686`) in the browser and log in once with the token
+1. Scan the login QR code in the terminal (or from `bun run qr`) with the camera and you're logged in; or open an
+   address from the startup log (`http://<computer IP>:8686`) in the browser and type the token once
 2. **Add to Home Screen** (strongly recommended — it feels close to a native app):
    - **iOS**: open in Safari → "Share" button at the bottom → "Add to Home Screen" → "Add". Then open it from
      the home-screen icon and **log in with the token once more** (the home-screen app doesn't share cookies with Safari)

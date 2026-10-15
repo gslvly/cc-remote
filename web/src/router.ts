@@ -1,7 +1,7 @@
 import { createSignal } from 'solid-js'
 
 export type Route =
-  | { page: 'login' }
+  | { page: 'login'; token: string }
   | { page: 'home' }
   | { page: 'dir'; path: string }
   | { page: 'session'; id: string }
@@ -9,7 +9,8 @@ export type Route =
 function parse(hash: string): Route {
   const [path = '', query = ''] = hash.replace(/^#/, '').split('?')
   const params = new URLSearchParams(query)
-  if (path === '/login') return { page: 'login' }
+  // token：扫服务端终端里的登录二维码进来时带着（见 server/qr.ts）
+  if (path === '/login') return { page: 'login', token: params.get('token') ?? '' }
   if (path === '/dir') return { page: 'dir', path: params.get('path') ?? '' }
   const m = path.match(/^\/s\/([\w-]+)$/)
   if (m) return { page: 'session', id: m[1]! }
@@ -41,7 +42,7 @@ export const go = {
   home: () => navigate('#/'),
   /** 回上一页（首页或目录页）；直接打开的、上一条不是应用内的，回首页 */
   back: () => (history.state?.inApp ? history.back() : navigate('#/', true)),
-  login: () => navigate('#/login'),
+  login: (replace = false) => navigate('#/login', replace),
   /** 目录页：新建会话、该目录的历史会话 */
   dir: (path: string) => navigate(`#/dir?path=${encodeURIComponent(path)}`),
   /** 标签条之间切换用 replace，不然返回键要把切过的会话挨个退一遍 */
