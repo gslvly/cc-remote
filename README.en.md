@@ -192,12 +192,15 @@ reloads by itself after the build, no restart needed.
 After upgrading `claude`, run `bun run sdk:sync`: it switches the SDK to the matching version (found on npm by
 `claudeCodeVersion`, then checked again to be the same file), then restart the service. `deploy.sh` does this on every deploy.
 
-You can also upgrade from the phone: when npm has a newer SDK, the home page shows a notice; tap "升级并重启" (upgrade and
+You can also upgrade from the phone: when npm has a newer SDK, the line at the bottom of the home page says so; tap "升级并重启" (upgrade and
 restart) and the SDK and the local `claude` move to the latest pair together. It installs the latest SDK, runs the type check
 (reverting to the previous version if it fails), runs `claude install <paired version>` (the same file the SDK pairs with), then
 exits so launchd / systemd brings it back (see "Start at Login, Restart on Crash"). The upgrade runs in the background, so you can
 leave the page and come back to the progress.
 
+- npm ships a release almost every day, so normally it's just that bottom line; the home page shows a notice at the top only for a
+  major release (the SDK's minor changes while it's 0.x, or the paired `claude`'s x.y changes) or after falling 7 days behind (the
+  oldest release newer than yours is 7 days old). "检查更新" (check for updates) at the bottom skips the half-hour cache
 - It won't upgrade while a managed session is running or awaiting approval, so a restart doesn't interrupt it
 - When started by neither launchd nor systemd (foreground `bun run start`, Windows Task Scheduler), it only installs; restart it on the computer
 - If the local `claude` is already newer than the paired one (auto-update got ahead), it isn't downgraded; child processes use the

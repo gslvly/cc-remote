@@ -14,6 +14,8 @@ const ROOT = join(import.meta.dir, '..')
 /** npm 上的最新版缓存多久；没查到时一分钟后再试 */
 const LATEST_TTL = 30 * 60_000
 const RETRY = 60_000
+/** 落后满这么久才在首页顶上醒目提示；没到时只在底部放一行小字（npm 上差不多天天发版） */
+export const STALE = 7 * 86_400_000
 
 export const BUSY = '有会话正在跑（运行中 / 待批准），重启会打断它们，等它们空闲再升级'
 
@@ -23,15 +25,56 @@ const supervised = !!process.env.INVOCATION_ID || (process.platform === 'darwin'
 /** 输出的最后几行，报错用 */
 const tail = (s: string) => s.trim().split('\n').slice(-8).join('\n')
 
-async function fetchLatest(): Promise<SdkVersion | undefined> {
+/** npm 上发过的一版（不含预发布）；time 是发布时间 */
+export interface Release extends SdkVersion {
+  time: number
+}
+
+export interface Npm {
+  latest: SdkVersion
+  releases: Release[]
+}
+
+/** 要发布时间，只能取完整的包信息（~1MB，缓存半小时） */
+async function fetchNpm(): Promise<Npm | undefined> {
   try {
-    const res = await fetch(`https://registry.npmjs.org/${PKG}/latest`, { signal: AbortSignal.timeout(15_000) })
+    const res = await fetch(`https://registry.npmjs.org/${PKG}`, { signal: AbortSignal.timeout(15_000) })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const m = (await res.json()) as { version: string; claudeCodeVersion?: string }
-    return { version: m.version, cli: m.claudeCodeVersion ?? '?' }
+    const m = (await res.json()) as {
+      'dist-tags': { latest: string }
+      versions: Record<string, { claudeCodeVersion?: string }>
+      time: Record<string, string>
+    }
+    const version = m['dist-tags'].latest
+    const releases = Object.entries(m.versions).flatMap(([v, p]) =>
+      !v.includes('-') && p.claudeCodeVersion && m.time[v] ? [{ version: v, cli: p.claudeCodeVersion, time: Date.parse(m.time[v]) }] : [],
+    )
+    return { latest: { version, cli: m.versions[version]?.claudeCodeVersion ?? '?' }, releases }
   } catch (e) {
     console.warn(`[sdk] 查 npm 上的最新版失败：${e}`)
   }
+}
+
+/**
+ * 该在首页顶上醒目提示了：有大版本（SDK 出了 ^在跑的 的范围，0.x 时就是 minor 变了；配套 claude 的 x.y 变了），
+ * 或落后满 STALE（比在用的新的版本里最早的那版发布满 STALE）。SDK 和本机 claude 各看各的
+ */
+export function urgent(npm: Npm, running: SdkVersion, local: LocalClaudeInfo | undefined, now = Date.now()): boolean {
+  const { latest, releases } = npm
+  const stale = (newer: (r: Release) => boolean) => releases.some((r) => newer(r) && now - r.time >= STALE)
+  const major = (from: string, to: string, range: '^' | '~') => !Bun.semver.satisfies(to, `${range}${from}`)
+
+  const sdk = running.version
+  if (Bun.semver.order(latest.version, sdk) > 0) {
+    if (major(sdk, latest.version, '^') || major(running.cli, latest.cli, '~')) return true
+    if (stale((r) => Bun.semver.order(r.version, sdk) > 0)) return true
+  }
+  const cli = local?.version
+  if (cli && !local.matched && Bun.semver.order(latest.cli, cli) > 0) {
+    if (major(cli, latest.cli, '~')) return true
+    if (stale((r) => Bun.semver.order(r.cli, cli) > 0)) return true
+  }
+  return false
 }
 
 /** 失败时返回原因 */
@@ -44,8 +87,8 @@ async function exec(cmd: string[]): Promise<string | undefined> {
 const older = (local: LocalClaudeInfo, cli: string) => !local.version || Bun.semver.order(local.version, cli) < 0
 
 export interface SdkDeps {
-  /** 现查 npm 上最新的 */
-  latest: () => Promise<SdkVersion | undefined>
+  /** 现查 npm 上最新的和发过的各版 */
+  npm: () => Promise<Npm | undefined>
   /** node_modules 里装着的版本 */
   installed: () => string
   /** 在跑的 */
@@ -63,7 +106,7 @@ export interface SdkDeps {
 }
 
 const defaults: SdkDeps = {
-  latest: fetchLatest,
+  npm: fetchNpm,
   installed: () => installedSdk().version,
   running: { version: localClaude.sdk.version, cli: localClaude.sdk.cli },
   local: () => localClaude.local(),
@@ -88,10 +131,10 @@ export function sdkRoutes(busy: () => boolean, restart: () => void, deps: Partia
   const d = { ...defaults, ...deps }
   const sdk = new Hono()
 
-  let cached: { until: number; value: Promise<SdkVersion | undefined> } | undefined
-  const latest = (fresh = false) => {
+  let cached: { until: number; value: Promise<Npm | undefined> } | undefined
+  const npm = (fresh = false) => {
     if (fresh || !cached || Date.now() > cached.until) {
-      const entry = { until: Date.now() + LATEST_TTL, value: d.latest() }
+      const entry = { until: Date.now() + LATEST_TTL, value: d.npm() }
       void entry.value.then((v) => {
         if (!v) entry.until = Date.now() + RETRY
       })
@@ -162,23 +205,27 @@ export function sdkRoutes(busy: () => boolean, restart: () => void, deps: Partia
     }
   }
 
-  sdk.get('/', async (c) =>
-    c.json<SdkStatus>({
+  // ?fresh：首页的「检查更新」，不用缓存
+  sdk.get('/', async (c) => {
+    const n = await npm(c.req.query('fresh') !== undefined)
+    const local = await d.local()
+    return c.json<SdkStatus>({
       running: d.running,
       installed: d.installed(),
-      latest: await latest(),
-      local: await d.local(),
+      latest: n?.latest,
+      local,
       restartable: d.supervised,
+      urge: !!n && urgent(n, d.running, local),
       job,
-    }),
-  )
+    })
+  })
 
   // 装了还没重启（没人拉起、当时有会话在跑）时再点：跳过装，只重启
   sdk.post('/upgrade', async (c) => {
     if (working()) return c.json({ error: '正在升级' }, 409)
     starting = true
     try {
-      const target = await latest(true)
+      const target = (await npm(true))?.latest
       if (!target) return c.json({ error: '查不到 npm 上的最新版，看服务端能不能连上 registry.npmjs.org' }, 502)
       const sdkChanges = target.version !== d.running.version
       const local = await d.local()

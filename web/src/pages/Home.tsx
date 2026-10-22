@@ -3,7 +3,7 @@ import type { DirEntry, RecentDir } from '../../../shared/protocol'
 import { cachedGet } from '../api'
 import { DirBrowser } from '../components/DirBrowser'
 import { PushToggle } from '../components/PushToggle'
-import { SdkNotice } from '../components/SdkNotice'
+import { SdkLine, SdkNotice, useSdk } from '../components/SdkNotice'
 import { StateBadge } from '../components/StateBadge'
 import { QuotaText } from '../components/StatusLine'
 import { ago, basename, errorText, shortPath } from '../format'
@@ -24,6 +24,7 @@ export function Home() {
   const quota = useQuota()
   const recent = cachedGet<RecentDir[]>('/recent')
   const favs = cachedGet<DirEntry[]>('/favorites')
+  const sdk = useSdk()
   const [tab, setTab] = createSignal(sessionStorage.getItem(TAB_KEY) as Tab | null)
 
   const favSet = createMemo(() => new Set(favs().map((f) => f.path)))
@@ -64,7 +65,7 @@ export function Home() {
         </div>
       </div>
 
-      <SdkNotice />
+      <SdkNotice sdk={sdk} />
 
       <Show when={live.length}>
         <section class="mb-6">
@@ -149,6 +150,8 @@ export function Home() {
           </Loading>
         </Errored>
       </section>
+
+      <SdkLine sdk={sdk} />
     </div>
   )
 }

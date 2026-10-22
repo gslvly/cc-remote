@@ -358,6 +358,8 @@ export interface SdkStatus {
   local?: LocalClaudeInfo
   /** 进程退出后有 launchd / systemd 拉起，才能在手机上重启 */
   restartable: boolean
+  /** 该在首页顶上醒目提示了：有大版本，或落后满 7 天；否则有新版也只在首页底部放一行小字 */
+  urge: boolean
   /** 这次启动以来最近的一次升级 */
   job?: SdkJob
 }

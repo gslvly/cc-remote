@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import type { SdkJob, SdkStatus } from '../shared/protocol'
-import { BUSY, type SdkDeps, sdkRoutes } from './sdk'
+import { BUSY, type Npm, type Release, type SdkDeps, sdkRoutes, urgent } from './sdk'
 
+const DAY = 86_400_000
 const LATEST = { version: '0.3.304', cli: '2.1.304' }
 /** SDK 版本 → 配套的 claude */
 const PAIR: Record<string, string> = { '0.3.296': '2.1.296', '0.3.304': '2.1.304' }
@@ -13,6 +14,8 @@ interface Opts {
   broken?: string[]
   installed?: string
   latest?: typeof LATEST
+  /** npm 上发过的；默认只有 latest，昨天发的 */
+  releases?: Release[]
   /** 本机 claude 的版本；null 是没有本机的 */
   claude?: string | null
   claudeFails?: boolean
@@ -29,7 +32,11 @@ function setup(o: Opts = {}) {
   let lookups = 0
   let restarts = 0
   const deps: Partial<SdkDeps> = {
-    latest: async () => (lookups++, 'latest' in o ? o.latest : LATEST),
+    npm: async () => {
+      lookups++
+      const latest = 'latest' in o ? o.latest : LATEST
+      return latest && { latest, releases: o.releases ?? [{ ...latest, time: Date.now() - DAY }] }
+    },
     installed: () => installed,
     running: { version: '0.3.296', cli: '2.1.296' },
     local: async () => (claude ? { path: '/bin/claude', version: claude, matched: claude === '2.1.296' } : undefined),
@@ -91,9 +98,17 @@ describe('sdkRoutes', () => {
       latest: LATEST,
       local: { path: '/bin/claude', version: '2.1.296', matched: true },
       restartable: true,
+      urge: false,
     })
     await t.status()
     expect(t.lookups()).toBe(1)
+    await t.app.request('/?fresh')
+    expect(t.lookups()).toBe(2)
+  })
+
+  test('落后满 7 天就该醒目提示', async () => {
+    const t = setup({ releases: [{ ...LATEST, time: Date.now() - 8 * DAY }] })
+    expect((await t.status()).urge).toBe(true)
   })
 
   test('SDK 和本机 claude 一起换成最新的，然后重启', async () => {
@@ -194,5 +209,48 @@ describe('sdkRoutes', () => {
     expect((await first).status).toBe(202)
     expect((await setup({ latest: { version: '0.3.296', cli: '2.1.296' } }).upgrade()).status).toBe(409)
     expect((await setup({ latest: undefined }).upgrade()).status).toBe(502)
+  })
+})
+
+describe('urgent', () => {
+  const now = Date.parse('2026-10-22T00:00:00Z')
+  const running = { version: '0.3.300', cli: '2.1.300' }
+  const matched = { path: '/bin/claude', version: '2.1.300', matched: true }
+  /** 0.3.301 起每天一版，最后一版是今天发的 */
+  const daily = (n: number): Npm => {
+    const releases = Array.from({ length: n }, (_, i) => ({ version: `0.3.${301 + i}`, cli: `2.1.${301 + i}`, time: now - (n - 1 - i) * DAY }))
+    return { latest: releases.at(-1)!, releases }
+  }
+  const one = (version: string, cli: string, time = now): Npm => ({ latest: { version, cli }, releases: [{ version, cli, time }] })
+
+  test('天天发版：落后不满 7 天不提示，满了提示', () => {
+    expect(urgent(daily(7), running, matched, now)).toBe(false)
+    expect(urgent(daily(8), running, matched, now)).toBe(true)
+  })
+
+  test('大版本当天就提示：SDK 出了 ^ 的范围、配套 claude 的 x.y 变了', () => {
+    expect(urgent(one('0.4.0', '2.1.310'), running, matched, now)).toBe(true)
+    expect(urgent(one('1.0.0', '2.1.310'), running, matched, now)).toBe(true)
+    expect(urgent(one('0.3.301', '2.2.0'), running, matched, now)).toBe(true)
+    expect(urgent(one('0.3.301', '2.1.301'), running, matched, now)).toBe(false)
+  })
+
+  test('已是最新不提示，发布多久都一样', () => {
+    expect(urgent(one('0.3.300', '2.1.300', now - 30 * DAY), running, matched, now)).toBe(false)
+  })
+
+  test('SDK 是最新、本机 claude 旧：一样看大版本和 7 天，比配套的新不提示', () => {
+    const npm = (time: number): Npm => ({
+      latest: running,
+      releases: [
+        { version: '0.3.291', cli: '2.1.291', time },
+        { ...running, time: now - DAY },
+      ],
+    })
+    const local = (version: string) => ({ path: '/bin/claude', version, matched: false })
+    expect(urgent(npm(now - 3 * DAY), running, local('2.1.290'), now)).toBe(false)
+    expect(urgent(npm(now - 8 * DAY), running, local('2.1.290'), now)).toBe(true)
+    expect(urgent(npm(now - 3 * DAY), running, local('2.0.9'), now)).toBe(true)
+    expect(urgent(npm(now - 8 * DAY), running, local('2.1.305'), now)).toBe(false)
   })
 })
