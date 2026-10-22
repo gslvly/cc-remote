@@ -7,6 +7,8 @@
  *
  * 做法：--vvh 设成可见区域高度（页面用它当高度），窗口滚回顶部，不靠系统推。
  * 键盘弹起时底部没有 Home 条，--safe-bottom 设成 0，输入框下面不留安全区的空白。
+ * fixed 的底部弹层贴的是布局视口的底边，照样被键盘盖住：--kb 是键盘高度，弹层 bottom 用它垫起来（vaul 的 repositionInputs 同一个思路）。
+ * 弹层变矮后里面要滚，焦点输入框可能被挤到滚动区外，可见区域高度变了就把它滚回视野。
  * 双指缩放时可见区域也会变，那时不跟（scale 不是 1）
  *
  * 整页本身不滚也不回弹（overflow hidden + overscroll-behavior none），只有页面里的消息区滚：
@@ -18,13 +20,20 @@ export function fitViewport(): () => void {
   const root = document.documentElement
   root.style.overflow = 'hidden'
   root.style.overscrollBehavior = 'none'
+  let lastHeight = 0
   const update = () => {
     if (Math.abs(vv.scale - 1) > 0.01) return
     root.style.setProperty('--vvh', `${vv.height}px`)
     // 布局视口（html 的 clientHeight）不随键盘变，可见区域比它矮一大截就是键盘弹着
-    if (root.clientHeight - vv.height > 80) root.style.setProperty('--safe-bottom', '0px')
+    const kb = Math.max(0, root.clientHeight - vv.height)
+    root.style.setProperty('--kb', `${kb}px`)
+    if (kb > 80) root.style.setProperty('--safe-bottom', '0px')
     else root.style.removeProperty('--safe-bottom')
     if (window.scrollY || vv.offsetTop) window.scrollTo(0, 0)
+    if (vv.height !== lastHeight) {
+      lastHeight = vv.height
+      requestAnimationFrame(() => document.activeElement?.scrollIntoView({ block: 'nearest' }))
+    }
   }
   update()
   vv.addEventListener('resize', update)
@@ -33,6 +42,7 @@ export function fitViewport(): () => void {
     vv.removeEventListener('resize', update)
     vv.removeEventListener('scroll', update)
     root.style.removeProperty('--vvh')
+    root.style.removeProperty('--kb')
     root.style.removeProperty('--safe-bottom')
     root.style.removeProperty('overflow')
     root.style.removeProperty('overscroll-behavior')

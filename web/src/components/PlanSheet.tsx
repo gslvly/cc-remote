@@ -19,7 +19,7 @@ export function PlanSheet(props: SheetProps) {
   return (
     <Sheet>
       <SheetHead {...props} label="计划待批准" />
-      <div class="mt-2 max-h-[48dvh] overflow-y-auto rounded-lg bg-neutral-950 p-3">
+      <div class="mt-2 max-h-[calc(var(--vvh,100dvh)*0.48)] overflow-y-auto rounded-lg bg-neutral-950 p-3">
         <Markdown text={plan || '（没有收到计划正文）'} class="text-sm" />
       </div>
       <Show when={file}>

@@ -10,10 +10,10 @@ export interface SheetProps {
   onDecide: (d: PermissionDecisionBody) => Promise<unknown>
 }
 
-/** 底部弹层的外壳 */
+/** 底部弹层的外壳：键盘弹起时垫在键盘上方、高度不超过可见区域（--kb / --vvh 见 viewport.ts） */
 export function Sheet(props: ParentProps) {
   return (
-    <div class="fixed inset-x-0 bottom-0 z-20 mx-auto max-h-[88dvh] max-w-2xl overflow-y-auto rounded-t-2xl border-t border-neutral-700 bg-neutral-900 px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_-8px_30px_rgba(0,0,0,0.6)]">
+    <div class="fixed inset-x-0 bottom-[var(--kb,0px)] z-20 mx-auto max-h-[calc(var(--vvh,100dvh)*0.88)] max-w-2xl overflow-y-auto rounded-t-2xl border-t border-neutral-700 bg-neutral-900 px-4 pt-4 pb-[max(1rem,var(--safe-bottom,env(safe-area-inset-bottom)))] shadow-[0_-8px_30px_rgba(0,0,0,0.6)]">
       {props.children}
     </div>
   )
@@ -90,12 +90,12 @@ export function PermissionSheet(props: SheetProps) {
       <Show
         when={hunks()}
         fallback={
-          <pre class="mt-3 max-h-[40dvh] overflow-auto rounded-lg bg-neutral-950 p-3 font-mono text-xs whitespace-pre-wrap break-all text-neutral-200">
+          <pre class="mt-3 max-h-[calc(var(--vvh,100dvh)*0.4)] overflow-auto rounded-lg bg-neutral-950 p-3 font-mono text-xs whitespace-pre-wrap break-all text-neutral-200">
             {inputPreview(props.req.input)}
           </pre>
         }
       >
-        {(h) => <DiffView hunks={h()} class="mt-3 max-h-[40dvh]" />}
+        {(h) => <DiffView hunks={h()} class="mt-3 max-h-[calc(var(--vvh,100dvh)*0.4)]" />}
       </Show>
       <Show when={note()}>
         <p class="mt-2 text-xs text-neutral-500">{note()}</p>
