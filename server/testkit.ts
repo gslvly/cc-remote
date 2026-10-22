@@ -7,15 +7,11 @@
 // 把收到的消息和回复按同样的 uuid 写进 transcript，和真 CLI 一样
 import { mock } from 'bun:test'
 import * as sdk from '@anthropic-ai/claude-agent-sdk'
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { appendFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { eventLine } from './debug'
 import type { Session } from './session'
-
-const root = mkdtempSync(join(tmpdir(), 'ccr-test-'))
-process.env.CLAUDE_CONFIG_DIR = root
-process.on('exit', () => rmSync(root, { recursive: true, force: true }))
+import { root } from './testenv'
 
 export const CWD = '/tmp/ccr-fixture'
 const PROJECT = join(root, 'projects', CWD.replace(/[^a-zA-Z0-9]/g, '-'))

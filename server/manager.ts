@@ -3,6 +3,7 @@ import { deleteSession, type EffortLevel, getSessionInfo, type PermissionMode } 
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ImageAttachment, OverviewSessions, RewindRestore } from '../shared/protocol'
+import { lastActivity } from './activity'
 import { CLAUDE_DIR } from './config'
 import { checkDir } from './fs'
 import { ConflictError, Session } from './session'
@@ -176,10 +177,11 @@ export class SessionManager {
     if (!meta?.cwd) return
     const dir = await checkDir(meta.cwd, this.opts.roots)
     if (!dir.ok) return
+    const at = await lastActivity(meta)
     // 等待期间扫登记表时已经加进来了；或者开始删了
     const existing = this.sessions.get(id)
     if (existing || this.removing.has(id)) return existing
-    const s = new Session(id, dir.path, titleOf(meta), this.changed, { fresh: false, lastActivity: meta.lastModified })
+    const s = new Session(id, dir.path, titleOf(meta), this.changed, { fresh: false, lastActivity: at })
     this.sessions.set(id, s)
     s.setHolder(this.holders.get(id))
     return s
@@ -216,8 +218,10 @@ export class SessionManager {
         if (!(await checkDir(h.cwd, this.opts.roots)).ok) continue
         // transcript 写出来之前没东西可看，等下一轮
         const meta = await getSessionInfo(id)
-        if (!meta || this.sessions.has(id) || this.removing.has(id)) continue
-        s = new Session(id, h.cwd, titleOf(meta), this.changed, { fresh: false, lastActivity: meta.lastModified })
+        if (!meta) continue
+        const at = await lastActivity(meta)
+        if (this.sessions.has(id) || this.removing.has(id)) continue
+        s = new Session(id, h.cwd, titleOf(meta), this.changed, { fresh: false, lastActivity: at })
         this.sessions.set(id, s)
       }
       s.setHolder(h)

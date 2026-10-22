@@ -20,6 +20,7 @@ import type {
   StreamHello,
   SwitchableMode,
 } from '../shared/protocol'
+import { byActivity } from './activity'
 import { catalog, CLEAR_COMMAND } from './catalog'
 import { createAuth } from './auth'
 import { localClaude } from './claudeBin'
@@ -149,10 +150,10 @@ api.post('/logout', auth.logout)
 
 // 最近目录：不自己记，按 listSessions 的 cwd 聚合（终端里用过的目录也在）；不在 roots 内的不列
 api.get('/recent', async (c) => {
-  const all = await listSessions({ limit: 500 })
+  const all = await byActivity((await listSessions({ limit: 500 })).filter((s) => !isEmpty(s)))
   const byCwd = new Map<string, RecentDir>()
   for (const s of all) {
-    if (!s.cwd || isEmpty(s)) continue
+    if (!s.cwd) continue
     const d = byCwd.get(s.cwd)
     if (!d) byCwd.set(s.cwd, { cwd: s.cwd, lastModified: s.lastModified, sessions: 1, lastTitle: titleOf(s) })
     else {
@@ -193,16 +194,16 @@ api.get('/dir/sessions', async (c) => {
   const dir = await checkDir(c.req.query('path'), roots)
   if (!dir.ok) return c.json({ error: dir.error }, dir.status)
   const offset = Math.max(0, Number(c.req.query('offset')) || 0)
-  const list = await listSessions({ dir: dir.path, limit: DIR_PAGE + 1, offset, includeWorktrees: false })
+  // SDK 按文件修改时间排序分页，要按最后活动时间排就得全取出来自己分
+  const list = await byActivity((await listSessions({ dir: dir.path, includeWorktrees: false })).filter((s) => !isEmpty(s)))
   return c.json<DirSessions>({
-    // 滤掉的空会话让前端按条数算的 offset 偏小，下一页会有重叠，前端按 id 去重
-    sessions: list.slice(0, DIR_PAGE).filter((s) => !isEmpty(s)).map((s) => ({
+    sessions: list.slice(offset, offset + DIR_PAGE).map((s) => ({
       id: s.sessionId,
       title: titleOf(s),
       lastModified: s.lastModified,
       branch: s.gitBranch,
     })),
-    more: list.length > DIR_PAGE,
+    more: list.length > offset + DIR_PAGE,
   })
 })
 

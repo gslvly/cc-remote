@@ -155,6 +155,7 @@ export type OverviewSessions = SessionInfo[]
 
 export interface RecentDir {
   cwd: string
+  /** 目录下各会话最后活动时间里最晚的 */
   lastModified: number
   sessions: number
   lastTitle: string
@@ -194,11 +195,12 @@ export interface FsList {
 export interface DirSession {
   id: string
   title: string
+  /** 最后活动时间：transcript 最后一条的时间，不是文件修改时间（见 server/activity.ts） */
   lastModified: number
   branch?: string
 }
 
-/** GET /api/dir/sessions?path=&offset= ：按最后修改时间倒序，一页 30 个 */
+/** GET /api/dir/sessions?path=&offset= ：按最后活动时间倒序，一页 30 个 */
 export interface DirSessions {
   sessions: DirSession[]
   more: boolean
