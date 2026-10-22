@@ -63,6 +63,8 @@ export function loadConfig(): { config: Config; created: boolean } {
   if (process.env.CCR_PUSH) config.push = JSON.parse(process.env.CCR_PUSH)
   if (config.push?.bark && !config.push.bark.key) throw new Error(`${CONFIG_FILE} 里的 push.bark 要写 key`)
   if (config.push?.ntfy && !config.push.ntfy.topic) throw new Error(`${CONFIG_FILE} 里的 push.ntfy 要写 topic`)
+  // e2e 用：平时在用的服务端占着 https 端口
+  if (process.env.CCR_NO_HTTPS) delete config.https
   const { https } = config
   if (https && !(https.port > 0 && https.port !== config.port && https.cert && https.key))
     throw new Error(`${CONFIG_FILE} 里的 https 要写 port（和 port 不同）、cert、key`)

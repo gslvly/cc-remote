@@ -121,7 +121,7 @@ async function startServer(extra: Record<string, string> = {}) {
   const log = join(OUT, 'server.log')
   const proc = Bun.spawn(['bun', 'server/index.ts'], {
     cwd: REPO,
-    env: env({ ...extra, CCR_HOST: '127.0.0.1', CCR_PORT: String(PORT) }),
+    env: env({ ...extra, CCR_HOST: '127.0.0.1', CCR_PORT: String(PORT), CCR_NO_HTTPS: '1' }),
     stdout: Bun.file(log),
     stderr: Bun.file(log),
   })
