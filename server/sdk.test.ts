@@ -16,6 +16,7 @@ interface Opts {
   /** 本机 claude 的版本；null 是没有本机的 */
   claude?: string | null
   claudeFails?: boolean
+  pruneFails?: boolean
 }
 
 /** 假的 npm、node_modules 和本机 claude：装什么就变成什么 */
@@ -23,6 +24,8 @@ function setup(o: Opts = {}) {
   let installed = o.installed ?? '0.3.296'
   let claude = o.claude === undefined ? '2.1.296' : o.claude
   const calls: string[] = []
+  /** 删旧版时留下的 SDK 版本 */
+  const pruned: string[] = []
   let lookups = 0
   let restarts = 0
   const deps: Partial<SdkDeps> = {
@@ -40,6 +43,11 @@ function setup(o: Opts = {}) {
       calls.push(`claude ${v}`)
       if (o.claudeFails) return '下载超时'
       claude = v
+    },
+    prune: async (v) => {
+      pruned.push(v)
+      if (o.pruneFails) throw new Error('EACCES')
+      return '删了旧版 claude 2.1.296'
     },
     supervised: o.supervised ?? true,
   }
@@ -66,6 +74,7 @@ function setup(o: Opts = {}) {
     status,
     upgrade,
     calls,
+    pruned,
     installed: () => installed,
     claude: () => claude,
     lookups: () => lookups,
@@ -92,7 +101,15 @@ describe('sdkRoutes', () => {
     const { job } = await t.upgrade()
     expect(job).toMatchObject({ target: LATEST, state: 'restarting', notes: [] })
     expect(t.calls).toEqual(['sdk 0.3.304', 'claude 2.1.304'])
+    expect(t.pruned).toEqual(['0.3.304'])
     expect(await t.restarts()).toBe(1)
+  })
+
+  test('删旧版失败不影响升级，记下原因', async () => {
+    const t = setup({ pruneFails: true })
+    const { job } = await t.upgrade()
+    expect(job?.state).toBe('restarting')
+    expect(job?.notes).toEqual(['旧版没删掉：EACCES'])
   })
 
   test('本机 claude 已自己更新到配套的，就不再装', async () => {
@@ -150,6 +167,7 @@ describe('sdkRoutes', () => {
     expect(job?.error).toContain('TS2345')
     expect(t.calls).toEqual(['sdk 0.3.304', 'sdk 0.3.296'])
     expect(t.claude()).toBe('2.1.296')
+    expect(t.pruned).toEqual([])
     expect(await t.restarts()).toBe(0)
   })
 

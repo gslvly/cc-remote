@@ -7,6 +7,7 @@ import { Hono } from 'hono'
 import type { LocalClaudeInfo, SdkJob, SdkStatus, SdkVersion } from '../shared/protocol'
 import { childEnv } from './child'
 import { installedSdk, localClaude } from './claudeBin'
+import { pruneOld } from './prune'
 
 const PKG = '@anthropic-ai/claude-agent-sdk'
 const ROOT = join(import.meta.dir, '..')
@@ -56,6 +57,8 @@ export interface SdkDeps {
   typecheck: () => Promise<string | undefined>
   /** 本机 claude 换成指定版本 */
   installClaude: (version: string) => Promise<string | undefined>
+  /** 删旧版 claude 和缓存里的旧 SDK，留下 sdk 这版 */
+  prune: (sdk: string) => Promise<string | undefined>
   supervised: boolean
 }
 
@@ -68,7 +71,16 @@ const defaults: SdkDeps = {
   install: (version) => exec([process.execPath, 'add', `${PKG}@${version}`, '--exact']),
   typecheck: () => exec([process.execPath, 'run', 'typecheck']),
   installClaude: (version) => exec([localClaude.file!, 'install', version]),
+  prune: (sdk) => pruneOld(localClaude.file, sdk, ROOT),
   supervised,
+}
+
+/** 启动时也删一次：升级时还有会话在用的旧版 claude，重启后就没人用了 */
+export function pruneOnStart() {
+  defaults.prune(defaults.installed()).then(
+    (said) => said && console.log(`[sdk] ${said}`),
+    (e) => console.warn(`[sdk] 旧版没删掉：${e}`),
+  )
 }
 
 /** busy：有托管会话在跑；restart：退出进程等服务管理器拉起 */
@@ -124,6 +136,15 @@ export function sdkRoutes(busy: () => boolean, restart: () => void, deps: Partia
         if (failed) j.notes.push(`本机 claude 没换成 ${target.cli}，子进程先用 SDK 自带的：\n${failed}`)
         else if (!d.paired()) j.notes.push(`装了 claude ${target.cli}，但 ${local.path} 与 SDK 配套的不是同一个文件（不是原生安装？），子进程先用 SDK 自带的`)
       }
+    }
+
+    // 删不掉不影响升级，记下来
+    step('删旧版')
+    try {
+      const said = await d.prune(target.version)
+      if (said) console.log(`[sdk] ${said}`)
+    } catch (e) {
+      j.notes.push(`旧版没删掉：${e instanceof Error ? e.message : e}`)
     }
 
     // 只换了 claude：下次起子进程时就核对到新文件，不用重启

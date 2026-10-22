@@ -31,7 +31,7 @@ import { listen } from './listen'
 import { LimitError, SessionManager } from './manager'
 import { pusher } from './push'
 import { listenUrls, printLoginQr } from './qr'
-import { sdkRoutes } from './sdk'
+import { pruneOnStart, sdkRoutes } from './sdk'
 import { ConflictError, type EventId } from './session'
 import { isEmpty, titleOf } from './transcript'
 import { quota } from './usage'
@@ -470,6 +470,7 @@ if (anyHost) console.log('[cc-remote] 同一局域网 / 组网里的设备都能
 console.log(`[cc-remote] roots：${roots.join('、') || '（无）'}`)
 console.log(`[cc-remote] 并发上限 ${config.maxLive}，空闲 ${config.idleMinutes} 分钟回收子进程`)
 console.log(`[cc-remote] claude：${localClaude.describe()}`)
+pruneOnStart()
 // 听所有网卡时取第一个网卡地址，不对就在配置里写 publicUrl
 const publicUrl = config.publicUrl || urls[0] || `http://127.0.0.1:${server.port}`
 pusher.configure(config.push, publicUrl, webPush)

@@ -4,6 +4,7 @@
 import { $ } from 'bun'
 import { cliVersion, installedSdk, sha256File } from '../server/claudeBin'
 import { expandHome, loadConfig } from '../server/config'
+import { pruneOld } from '../server/prune'
 
 const PKG = '@anthropic-ai/claude-agent-sdk'
 
@@ -16,10 +17,21 @@ const { config } = loadConfig()
 const path = config.claude ? expandHome(config.claude) : Bun.which('claude')
 if (!path) fail('PATH 里没有 claude，配置里也没写 claude')
 
+/** 删旧版 claude 和 bun 缓存里的旧 SDK（见 server/prune.ts），删不掉不算失败 */
+const prune = async (sdk: string) => {
+  try {
+    const said = await pruneOld(path, sdk, process.cwd())
+    if (said) console.log(`✓ ${said}`)
+  } catch (e) {
+    console.warn(`! 旧版没删掉：${e}`)
+  }
+}
+
 const sum = sha256File(path)
 const before = installedSdk()
 if (before.checksums.includes(sum)) {
   console.log(`✓ 已配套：SDK ${before.version} ↔ claude ${before.cli}（${path}）`)
+  await prune(before.version)
   process.exit(0)
 }
 
@@ -38,3 +50,4 @@ const after = installedSdk()
 if (!after.checksums.includes(sum)) fail(`装了 SDK ${after.version}，但它配套的 claude ${after.cli} 与本机 ${path} 不是同一个文件`)
 const dir = Bun.semver.order(after.version, before.version) > 0 ? '升级' : '降级'
 console.log(`✓ SDK ${dir} ${before.version} → ${after.version}（配 claude ${after.cli}）。跑 bun run check，再重启服务`)
+await prune(after.version)

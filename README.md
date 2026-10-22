@@ -181,6 +181,8 @@ git pull && bun install && bun run build
 - 本机 `claude` 比配套的还新（自动更新跑在前面）时不降级，子进程先用 SDK 自带的，等 npm 上的 SDK 跟上再升
 - SDK 已是最新、只有本机 `claude` 旧时，按钮是「更新本机 claude」，不用重启
 - `claude install` 装的是原生版本（`~/.local/bin/claude`）；本机用的是别的方式装的，换完还对不上时会提示
+- 升级完、`sdk:sync` 后、服务端启动时删旧版：`~/.local/share/claude/versions` 里比在用的旧的 claude（还有进程在跑的留到下次），
+  bun 缓存里比装着的旧的 SDK（每版连平台包 ~500MB）。只删原生安装的；查不了哪些在跑（非 Linux 又没有 `lsof`）就不删 claude
 
 ## 推荐的服务端设置
 
