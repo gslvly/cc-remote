@@ -191,6 +191,19 @@ reloads by itself after the build, no restart needed.
 After upgrading `claude`, run `bun run sdk:sync`: it switches the SDK to the matching version (found on npm by
 `claudeCodeVersion`, then checked again to be the same file), then restart the service. `deploy.sh` does this on every deploy.
 
+You can also upgrade from the phone: when npm has a newer SDK, the home page shows a notice; tap "升级并重启" (upgrade and
+restart) and the SDK and the local `claude` move to the latest pair together. It installs the latest SDK, runs the type check
+(reverting to the previous version if it fails), runs `claude install <paired version>` (the same file the SDK pairs with), then
+exits so launchd / systemd brings it back (see "Start at Login, Restart on Crash"). The upgrade runs in the background, so you can
+leave the page and come back to the progress.
+
+- It won't upgrade while a managed session is running or awaiting approval, so a restart doesn't interrupt it
+- When started by neither launchd nor systemd (foreground `bun run start`, Windows Task Scheduler), it only installs; restart it on the computer
+- If the local `claude` is already newer than the paired one (auto-update got ahead), it isn't downgraded; child processes use the
+  SDK's bundled copy until npm's SDK catches up
+- When the SDK is already the latest and only the local `claude` is behind, the button is "更新本机 claude" (update local claude), no restart needed
+- `claude install` installs the native build (`~/.local/bin/claude`); if yours was installed another way and still doesn't match, the notice says so
+
 ## Recommended Server Setup
 
 cc-remote only launches Claude Code, serves the page and sends push notifications. For a phone that can

@@ -30,6 +30,7 @@ import { fsRoutes } from './fsRoutes'
 import { LimitError, SessionManager } from './manager'
 import { pusher } from './push'
 import { listenUrls, printLoginQr } from './qr'
+import { sdkRoutes } from './sdk'
 import { ConflictError, type EventId } from './session'
 import { isEmpty, titleOf } from './transcript'
 import { quota } from './usage'
@@ -170,6 +171,12 @@ api.get('/recent', async (c) => {
 api.route(
   '/fs',
   fsRoutes(roots, (dir) => sessions.list().some((s) => s.state !== 'idle' && within(s.cwd, dir))),
+)
+
+// 升级 SDK：重启会打断托管会话，有在跑的就不升；终端里的会话不受影响
+api.route(
+  '/sdk',
+  sdkRoutes(() => sessions.list().some((s) => !s.terminal && s.state !== 'idle'), shutdown),
 )
 
 // 目录页：分支、是否收藏
@@ -480,9 +487,9 @@ if (created && process.stdout.isTTY) printLoginQr(publicUrl, config.token, urls)
 // 防睡眠、开机自启都由用户按自己的系统配，服务端不管
 console.log('[cc-remote] 提示：电脑睡着了手机就连不上，要随时能连请在系统设置里关掉自动睡眠（见 README「需要你自己配的」）')
 
-for (const sig of ['SIGINT', 'SIGTERM'] as const) {
-  process.on(sig, () => {
-    sessions.closeAll()
-    process.exit(0)
-  })
+function shutdown() {
+  sessions.closeAll()
+  process.exit(0)
 }
+
+for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, shutdown)

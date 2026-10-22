@@ -2,7 +2,7 @@
 // 本机 claude --version → npm 上 claudeCodeVersion 相同的那版 SDK → bun add --exact → 再核对一遍是同一个文件。已经配套就不动
 //   bun run sdk:sync
 import { $ } from 'bun'
-import { installedSdk, sha256File } from '../server/claudeBin'
+import { cliVersion, installedSdk, sha256File } from '../server/claudeBin'
 import { expandHome, loadConfig } from '../server/config'
 
 const PKG = '@anthropic-ai/claude-agent-sdk'
@@ -23,7 +23,7 @@ if (before.checksums.includes(sum)) {
   process.exit(0)
 }
 
-const cli = (await $`${path} --version`.text()).match(/^\d+\.\d+\.\d+/)?.[0]
+const cli = await cliVersion(path)
 if (!cli) fail(`${path} --version 没给出版本号`)
 
 // 只匹配到一版时 npm 给的是对象，不是数组

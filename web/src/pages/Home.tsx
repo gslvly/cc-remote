@@ -3,6 +3,7 @@ import type { DirEntry, RecentDir } from '../../../shared/protocol'
 import { cachedGet } from '../api'
 import { DirBrowser } from '../components/DirBrowser'
 import { PushToggle } from '../components/PushToggle'
+import { SdkNotice } from '../components/SdkNotice'
 import { StateBadge } from '../components/StateBadge'
 import { QuotaText } from '../components/StatusLine'
 import { ago, basename, errorText, shortPath } from '../format'
@@ -62,6 +63,8 @@ export function Home() {
           <QuotaText quota={quota()} />
         </div>
       </div>
+
+      <SdkNotice />
 
       <Show when={live.length}>
         <section class="mb-6">

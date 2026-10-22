@@ -316,6 +316,52 @@ export interface Catalog {
   models: CatalogModel[]
 }
 
+/** SDK 的版本和它配套的 claude 版本 */
+export interface SdkVersion {
+  version: string
+  cli: string
+}
+
+/** 本机的 claude（终端里那个） */
+export interface LocalClaudeInfo {
+  path: string
+  /** claude --version 没给出时没有 */
+  version?: string
+  /** 与在跑的 SDK 配套（同一个文件）：子进程用它，否则用 SDK 自带的 */
+  matched: boolean
+}
+
+/**
+ * 一次升级（POST /api/sdk/upgrade 开始，在后台跑）：SDK 换成 npm 上最新的，本机 claude 换成与它配套的那版，
+ * 两边就是同一个文件。只换了 claude 不用重启
+ */
+export interface SdkJob {
+  target: SdkVersion
+  /** 正在做的一步 */
+  step: string
+  state: 'running' | 'restarting' | 'failed' | 'done'
+  /** failed 的原因 */
+  error?: string
+  /** 做完了但有没跟上的：claude 没换成、要到电脑上重启 */
+  notes: string[]
+}
+
+/** GET /api/sdk */
+export interface SdkStatus {
+  /** 服务端在跑的 */
+  running: SdkVersion
+  /** node_modules 里装着的版本；与 running 不同说明装好了还没重启 */
+  installed: string
+  /** npm 上最新的；没查到（断网、超时）时没有 */
+  latest?: SdkVersion
+  /** PATH 里没有、配置里也没写时没有 */
+  local?: LocalClaudeInfo
+  /** 进程退出后有 launchd / systemd 拉起，才能在手机上重启 */
+  restartable: boolean
+  /** 这次启动以来最近的一次升级 */
+  job?: SdkJob
+}
+
 /**
  * POST /api/sessions/:id/permissions/:reqId
  * - allow：`always` 把请求里的 suggestions 改成只对本会话生效；`answers` / `annotations` 是 AskUserQuestion 的回答

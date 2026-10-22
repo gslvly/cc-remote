@@ -171,6 +171,16 @@ git pull && bun install && bun run build
 `claude` 升级后跑 `bun run sdk:sync`：把 SDK 换成与它配套的版本（在 npm 上按 `claudeCodeVersion` 找，装完再核对一遍是同一个文件），然后重启服务。
 `deploy.sh` 每次部署会自动跑这一步。
 
+也可以在手机上升级：npm 上有新的 SDK 时首页顶上会提示，点「升级并重启」，SDK 和本机 `claude` 一起换成最新的那一对——
+装上最新的 SDK、跑一遍类型检查（没过就装回原来的）、`claude install <配套版本>`（与 SDK 配套的是同一个文件），
+然后退出进程，由 launchd / systemd 拉起（见「开机自启」，要配成挂了就拉起）。升级在后台跑，手机切走再回来能接着看进度。
+
+- 有托管会话在跑（运行中 / 待批准）时不升级，免得重启打断它们
+- 不是 launchd / systemd 拉起的（前台 `bun run start`、Windows 任务计划程序）只装不重启，要到电脑上重启
+- 本机 `claude` 比配套的还新（自动更新跑在前面）时不降级，子进程先用 SDK 自带的，等 npm 上的 SDK 跟上再升
+- SDK 已是最新、只有本机 `claude` 旧时，按钮是「更新本机 claude」，不用重启
+- `claude install` 装的是原生版本（`~/.local/bin/claude`）；本机用的是别的方式装的，换完还对不上时会提示
+
 ## 推荐的服务端设置
 
 cc-remote 只负责拉起 Claude Code、提供页面和推送。想让手机随时能连、开什么项目都顺畅，建议把下面三项配上。
