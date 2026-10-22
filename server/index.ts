@@ -27,6 +27,7 @@ import { CONFIG_DIR, CONFIG_FILE, expandHome, loadConfig, resolveRoots, waitForH
 import { Favorites } from './favorites'
 import { checkDir, dirEntry, gitBranch, within } from './fs'
 import { fsRoutes } from './fsRoutes'
+import { listen } from './listen'
 import { LimitError, SessionManager } from './manager'
 import { pusher } from './push'
 import { listenUrls, printLoginQr } from './qr'
@@ -460,13 +461,7 @@ app.get('*', async (c) => {
 })
 
 const hostname = await waitForHost(config.host)
-const server = Bun.serve({
-  hostname,
-  port: config.port,
-  fetch: app.fetch,
-  // 默认 10 秒会掐断 SSE；255 是上限，另有 20 秒一次的 ping
-  idleTimeout: 255,
-})
+const server = listen(hostname, config, app.fetch)
 
 const anyHost = hostname === '0.0.0.0'
 const urls = listenUrls(hostname, server.port ?? config.port)

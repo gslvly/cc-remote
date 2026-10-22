@@ -123,6 +123,7 @@ Config file `~/.cc-remote/config.json` (generated on first start; mode 600 on ma
     "ntfy": { "topic": "<hard-to-guess topic>", "server": "https://ntfy.sh" }
   },
   "publicUrl": "http://192.168.1.8:8686", // deep-link prefix for push and the login QR code; defaults to the first address in the startup log
+  "https": { "port": 8443, "cert": "~/certs/fullchain.pem", "key": "~/certs/key.pem" }, // optional extra HTTPS port, see "Security"
   "claude": "~/.local/bin/claude" // path to your local claude; looked up on PATH if omitted
 }
 ```
@@ -394,7 +395,11 @@ commands go over REST, pushes over SSE.
   **Don't expose it to the internet or reverse-proxy it on a public server** — this page is equivalent to a remote shell
 - The login token is stored in an httpOnly + SameSite=Strict cookie; for `curl`, use `Authorization: Bearer <token>`
 - The `.key` files under `~/.claude/sessions/` are secrets: only the `.json` registry is read; `.key` is never read or sent anywhere
-- Need HTTPS (e.g. for iOS Web Push)? Point a domain's A record at the computer's LAN / overlay IP and have Caddy issue a certificate via DNS-01
+- Need HTTPS (e.g. for iOS Web Push)? Point a domain's A record at the computer's LAN / overlay IP (an exact record wins over a wildcard),
+  issue a certificate for it via DNS-01 on any machine (the computer needn't be reachable from the internet), copy it over and set `https` in the config.
+  The server then opens that HTTPS port in addition to `port`, which stays plain HTTP (local scripts use it); the certificate is read at startup only, so restart after replacing it.
+  To use 443 (no port in the URL) on Linux, where regular users can't listen below 1024, allow it once as root: put `net.ipv4.ip_unprivileged_port_start = 443` in `/etc/sysctl.d/`.
+  Open `https://<domain>:<port>` on the phone and set `publicUrl` to it as well
 
 ## Development
 

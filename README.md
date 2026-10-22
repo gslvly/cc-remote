@@ -109,6 +109,7 @@ bun run start     # 启动服务端（默认端口 8686）
     "ntfy": { "topic": "<难猜的 topic 名>", "server": "https://ntfy.sh" }
   },
   "publicUrl": "http://192.168.1.8:8686", // 推送深链接前缀、登录二维码的地址，默认取启动日志里列出的第一个地址
+  "https": { "port": 8443, "cert": "~/certs/fullchain.pem", "key": "~/certs/key.pem" }, // 可选，另开 HTTPS 端口，见「安全」
   "claude": "~/.local/bin/claude" // 本机 claude 的路径，不写就在 PATH 里找
 }
 ```
@@ -363,7 +364,11 @@ macOS 执行 `sudo pmset -a autorestart 1`；Linux / Windows 在 BIOS 里打开�
   **不要暴露到公网，也不要在公网服务器上反代**——这个页面等同远程 shell
 - 登录 token 存 httpOnly + SameSite=Strict cookie；`curl` 可用 `Authorization: Bearer <token>`
 - `~/.claude/sessions/` 下的 `.key` 文件是密钥：只读 `.json` 登记表，绝不读取或外传 `.key`
-- 需要 HTTPS（如 iOS Web Push）：自有域名 A 记录指向电脑的内网 / 组网 IP，Caddy 用 DNS-01 签证书
+- 需要 HTTPS（如 iOS Web Push）：自有域名的 A 记录指向电脑的内网 / 组网 IP（有泛解析也会被这条精确记录盖过），
+  在任意一台机器上用 DNS-01 签这个域名的证书（不用电脑能被公网访问），拷到电脑上，配置里写 `https`。
+  服务端在 `port` 之外再开这个 HTTPS 端口，`port` 照旧是 HTTP（本机脚本用）；证书只在启动时读，换了要重启。
+  想用 443（地址里不带端口），Linux 上普通用户听不了 1024 以下的端口，要 root 放开一次：`net.ipv4.ip_unprivileged_port_start = 443` 写进 `/etc/sysctl.d/`。
+  手机从 `https://<域名>:<端口>` 打开，`publicUrl` 也改成它
 
 ## 开发
 

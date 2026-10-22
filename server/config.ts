@@ -18,6 +18,11 @@ export interface Config {
   push?: PushConfig
   /** 推送里深链接的前缀，默认 http://<监听地址>:<端口> */
   publicUrl?: string
+  /**
+   * 在 port 之外再开一个 HTTPS 端口（网页推送要从 HTTPS 打开），证书自备：cert 是含中间证书的 fullchain，路径可以用 ~ 开头。
+   * 只在启动时读，换了证书要重启
+   */
+  https?: { port: number; cert: string; key: string }
   /** 本机 claude 的路径，可以用 ~ 开头；不写就在 PATH 里找。与 SDK 配套的不是同一个文件时用 SDK 自带的（见 claudeBin.ts） */
   claude?: string
 }
@@ -58,6 +63,9 @@ export function loadConfig(): { config: Config; created: boolean } {
   if (process.env.CCR_PUSH) config.push = JSON.parse(process.env.CCR_PUSH)
   if (config.push?.bark && !config.push.bark.key) throw new Error(`${CONFIG_FILE} 里的 push.bark 要写 key`)
   if (config.push?.ntfy && !config.push.ntfy.topic) throw new Error(`${CONFIG_FILE} 里的 push.ntfy 要写 topic`)
+  const { https } = config
+  if (https && !(https.port > 0 && https.port !== config.port && https.cert && https.key))
+    throw new Error(`${CONFIG_FILE} 里的 https 要写 port（和 port 不同）、cert、key`)
   return { config, created }
 }
 
