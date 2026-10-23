@@ -5,7 +5,7 @@ import type { SDKRateLimitInfo, SDKResultMessage } from '@anthropic-ai/claude-ag
 import type { PermissionRequest } from '../shared/protocol'
 
 const { Session } = await import('./session')
-const { approvalNotice, doneNotice, pusher, pushRequests, quotaNotice, quotaRejected } = await import('./push')
+const { approvalNotice, doneNotice, pusher, pushRequests, quotaNotice, quotaRejected, TERMINAL_WAIT_MS } = await import('./push')
 
 const s = { id: 'b3f1c2d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d', title: '给 cc-remote 加推送' }
 const LINK = `http://100.101.102.103:8686/#/s/${s.id}`
@@ -52,9 +52,9 @@ describe('发给推送服务的请求', () => {
 
 describe('提醒的文字', () => {
   test('提问、计划审批', () => {
-    const ask = approvalNotice(s, { id: 'r2', toolName: 'AskUserQuestion', input: { questions: [{ question: '推送用 Bark 还是 ntfy？', header: '推送', options: [], multiSelect: false }] } })
+    const ask = approvalNotice(s, { toolName: 'AskUserQuestion', input: { questions: [{ question: '推送用 Bark 还是 ntfy？', header: '推送', options: [], multiSelect: false }] } })
     expect([ask.title, ask.body]).toEqual(['等你回答 · 给 cc-remote 加推送', '推送用 Bark 还是 ntfy？'])
-    const plan = approvalNotice(s, { id: 'r3', toolName: 'ExitPlanMode', input: { plan: '# 加推送\n\n1. 新建 server/push.ts' } })
+    const plan = approvalNotice(s, { toolName: 'ExitPlanMode', input: { plan: '# 加推送\n\n1. 新建 server/push.ts' } })
     expect([plan.title, plan.body]).toEqual(['计划待批准 · 给 cc-remote 加推送', '加推送 1. 新建 server/push.ts'])
   })
 
@@ -116,5 +116,63 @@ describe('什么时候推', () => {
     pusher.done(s, { type: 'result', subtype: 'success', is_error: true, result: "You've hit your limit" } as SDKResultMessage)
     pusher.done(s, result('ok'))
     expect(sent.map((n) => n.title)).toEqual(['额度用完 · 给 cc-remote 加推送', '完成 · 给 cc-remote 加推送'])
+  })
+
+  /** 登记表里等人的终端进程，ago 毫秒前开始等 */
+  const waiting = (t: Transcript, ago: number, waitingFor = 'permission prompt') => ({
+    pid: 1,
+    sessionId: t.id,
+    cwd: CWD,
+    status: 'waiting',
+    waitingFor,
+    updatedAt: Date.now() - ago,
+  })
+
+  test('终端里等批准：等了一会儿还没处理才推，一次等待只推一次，写上是哪次调用（并行的按顺序问）', async () => {
+    const t = new Transcript()
+    t.user('写个时间戳，再删掉 a.txt')
+    t.add('assistant', [{ type: 'tool_use', id: 'tu_ls', name: 'Bash', input: { command: 'ls' } }])
+    t.add('user', [{ type: 'tool_result', tool_use_id: 'tu_ls', content: 'a.txt' }])
+    t.add('assistant', [{ type: 'tool_use', id: 'tu_date', name: 'Bash', input: { command: 'date > stamp.txt' } }])
+    t.add('assistant', [{ type: 'tool_use', id: 'tu_rm', name: 'Edit', input: { file_path: '/tmp/a.txt' } }])
+    const term = { id: t.id, title: '终端里的会话', cwd: CWD }
+    await pusher.terminal(term, waiting(t, 2000))
+    expect(sent).toEqual([])
+    await pusher.terminal(term, waiting(t, TERMINAL_WAIT_MS + 1000))
+    await pusher.terminal(term, waiting(t, TERMINAL_WAIT_MS + 3000))
+    // 批了；再来一次等待照推
+    t.add('user', [{ type: 'tool_result', tool_use_id: 'tu_date', content: '' }])
+    await pusher.terminal(term, { ...waiting(t, 0), status: 'busy', waitingFor: undefined })
+    await pusher.terminal(term, waiting(t, TERMINAL_WAIT_MS + 1000))
+    expect(sent.map((n) => [n.title, n.message])).toEqual([
+      ['待批准（终端） · 终端里的会话', 'Bash：date > stamp.txt'],
+      ['待批准（终端） · 终端里的会话', 'Edit：/tmp/a.txt'],
+    ])
+    expect(sent[0]).toMatchObject({ priority: 4, click: `http://100.101.102.103:8686/#/s/${t.id}` })
+  })
+
+  test('终端里自己开的对话框不推；子代理的审批、别的等待说不清是什么，只说在等', async () => {
+    const t = new Transcript()
+    t.add('assistant', [{ type: 'tool_use', id: 'tu_agent', name: 'Agent', input: { description: '查代码', prompt: '…' } }])
+    const term = { id: t.id, title: '终端里的会话', cwd: CWD }
+    await pusher.terminal(term, waiting(t, TERMINAL_WAIT_MS + 1000, 'dialog open'))
+    expect(sent).toEqual([])
+    await pusher.terminal(term, waiting(t, TERMINAL_WAIT_MS + 1000))
+    await pusher.terminal(term, undefined)
+    await pusher.terminal(term, waiting(t, TERMINAL_WAIT_MS + 1000, 'input needed'))
+    expect(sent.map((n) => [n.title, n.message])).toEqual([
+      ['等你操作（终端） · 终端里的会话', '终端里在等你批准或回答'],
+      ['等你操作（终端） · 终端里的会话', '终端里在等你批准或回答'],
+    ])
+  })
+
+  test('终端等人时概览流连着就不推，这次等待也不再补推', async () => {
+    const t = new Transcript()
+    const term = { id: t.id, title: '终端里的会话', cwd: CWD }
+    const unview = pusher.view()
+    await pusher.terminal(term, waiting(t, TERMINAL_WAIT_MS + 1000))
+    unview()
+    await pusher.terminal(term, waiting(t, TERMINAL_WAIT_MS + 3000))
+    expect(sent).toEqual([])
   })
 })

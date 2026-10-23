@@ -1,9 +1,14 @@
-// 推送到手机（Bark / ntfy / 网页推送）：待批准、一轮结束、额度被拒，点开进入那个会话。
+// 推送到手机（Bark / ntfy / 网页推送）：待批准（含终端里的）、一轮结束、额度被拒，点开进入那个会话。
 // 只在没有概览流连着时推：手机切后台、锁屏时前端会断开（见 web/src/sse.ts）；在前台时由应用内横幅和状态点提醒
 import type { SDKRateLimitInfo, SDKResultMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { PermissionRequest } from '../shared/protocol'
+import { type PendingTool, pendingTool } from './activity'
 import type { PushConfig } from './config'
+import type { Holder } from './terminal'
 import type { WebPush } from './webpush'
+
+/** 终端等人等了这么久还没处理才推：人在电脑前一般几秒内就批了 */
+export const TERMINAL_WAIT_MS = 10_000
 
 export interface Notice {
   title: string
@@ -45,20 +50,28 @@ const clip = (s: string | undefined, max: number) => {
 }
 const heading = (kind: string, s: Target) => `${kind} · ${clip(s.title, 40)}`
 
+const str = (v: unknown) => (typeof v === 'string' ? v : undefined)
+
 /**
  * 待批准。title 是现成的整句提示；Bash 请求没有 title，description 是 Claude 自己的转述，
- * 批不批要看命令本身，所以有命令就放命令
+ * 批不批要看命令本身，所以有命令就放命令。终端里的只有 transcript 里的工具名和参数，where 标出是终端
  */
-export function approvalNotice(s: Target, req: PermissionRequest): Notice {
+export function approvalNotice(s: Target, req: Pick<PermissionRequest, 'toolName' | 'input' | 'title' | 'displayName' | 'description'>, where = ''): Notice {
   const { toolName, input } = req
-  const what = typeof input.command === 'string' ? input.command : req.description
+  const what = str(input.command) ?? req.description ?? str(input.file_path) ?? str(input.url)
   const [kind, body] =
     toolName === 'AskUserQuestion'
       ? ['等你回答', (input.questions as { question?: string }[] | undefined)?.[0]?.question]
       : toolName === 'ExitPlanMode'
         ? ['计划待批准', String(input.plan ?? '').replace(/^[#\s]+/, '')]
         : ['待批准', req.title || [req.displayName || toolName, what].filter(Boolean).join('：')]
-  return { session: s.id, title: heading(kind, s), body: clip(body, 120), urgent: true }
+  return { session: s.id, title: heading(kind + where, s), body: clip(body, 120), urgent: true }
+}
+
+/** 终端里在等人，手机上批不了，提醒回电脑前。不是工具审批、transcript 里没找到是哪次调用，就只说在等 */
+export function terminalNotice(s: Target, tool?: PendingTool): Notice {
+  if (tool) return approvalNotice(s, { toolName: tool.name, input: tool.input }, '（终端）')
+  return { session: s.id, title: heading('等你操作（终端）', s), body: '终端里在等你批准或回答', urgent: true }
 }
 
 /** 一轮结束：成功时是最后一段回复；出错时 success 的 result 是错误文字，其他 subtype 看 errors */
@@ -87,6 +100,8 @@ export class Pusher {
   private viewers = 0
   /** 这一轮已经推过额度被拒的会话：随后那个出错的 result 就不再推 */
   private limited = new Set<string>()
+  /** 这次等待已经推过的终端会话：不在等了才清掉 */
+  private waited = new Set<string>()
 
   /** web 是网页推送的订阅表；测试里不传，免得读到本机真实的订阅 */
   configure(cfg: PushConfig | undefined, publicUrl: string, web?: WebPush) {
@@ -119,6 +134,19 @@ export class Pusher {
     if (!quotaRejected(info) || this.limited.has(s.id)) return
     this.limited.add(s.id)
     this.notify(quotaNotice(s, info))
+  }
+
+  /**
+   * 终端里的会话，登记表每扫一遍调一次（h 是持有它的终端进程，见 Session.setHolder）。
+   * 在等人、等了 TERMINAL_WAIT_MS 还没处理，推一次；dialog open 是终端里自己打开的 /config 之类，不算
+   */
+  terminal(s: Target & { cwd: string }, h: Holder | undefined): Promise<void> | undefined {
+    if (h?.status !== 'waiting' || h.waitingFor === 'dialog open') return void this.waited.delete(s.id)
+    if (this.waited.has(s.id) || Date.now() - h.updatedAt < TERMINAL_WAIT_MS) return
+    this.waited.add(s.id)
+    if (this.viewers > 0) return
+    const tool = h.waitingFor === 'permission prompt' ? pendingTool(s.id, s.cwd).catch(() => undefined) : undefined
+    return Promise.resolve(tool).then((t) => this.notify(terminalNotice(s, t)))
   }
 
   private notify(n: Notice) {

@@ -16,6 +16,7 @@ import type {
 import { EventBuffer, type EventId } from './buffer'
 import { resolveModel } from './catalog'
 import { rewindFiles } from './child'
+import { pusher } from './push'
 import { Run, type RunHost } from './run'
 import { bashInput, bashOutput, runShell } from './shell'
 import type { Holder } from './terminal'
@@ -216,6 +217,7 @@ export class Session implements RunHost {
 
   /** 登记表扫描的结果：h 是持有这个会话的终端进程 */
   setHolder(h: Holder | undefined) {
+    void pusher.terminal(this, h)
     if (h) {
       const changed = this.terminal !== 'running' || this.terminalStatus !== h.status
       // 从空闲转忙，多半是终端里发了消息（没人看时不读 transcript，只能这样估；等批准后接着跑的不算）

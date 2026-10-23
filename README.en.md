@@ -26,7 +26,7 @@ Keywords: `claude-code` `claude-code-remote` `remote-control` `remote-control-al
 - ⌨️ **Everyday terminal moves**: `/` commands and skills, images / screenshots, `!` shell commands, model / effort switching, rewind (double `Esc`), per-session drafts
 - 👀 **Read-only view of terminal sessions**: watch sessions running in your computer's terminal live; once the terminal exits or runs `/clear`, it becomes a history session you can keep chatting in from the phone (or `claude --resume <id>`)
 - 📊 **Status bar**: model, context usage, cache hit rate, 5h / 7d quota — same numbers as the terminal statusline
-- 🔔 **Push to phone**: when approval is needed, a turn finishes, or quota is rejected (with deep links): native PWA notifications over HTTPS, or via Bark / ntfy
+- 🔔 **Push to phone**: when approval is needed, a turn finishes, or quota is rejected (with deep links); also when a session in your computer's terminal has been waiting for approval for over 10 seconds, so you know to go back. Native PWA notifications over HTTPS, or via Bark / ntfy
 - 🔑 **Any auth**: whatever your terminal `claude` uses — subscription login, API key, `ANTHROPIC_BASE_URL` proxies / compatible endpoints, Bedrock and other cloud providers
 - 🔒 **Phone never talks to Anthropic**: the phone only connects to your own computer (LAN or your overlay network) — no Claude app, no Claude login on the phone; token login (httpOnly cookie), with the security weight of a remote shell
 - 🪶 **Lightweight**: Bun + Hono server, Solid frontend (~40KB gzipped); reimplements nothing from Claude Code — it only renders and relays

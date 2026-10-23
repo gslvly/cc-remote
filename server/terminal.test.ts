@@ -1,7 +1,7 @@
 // 终端会话登记表：排除服务端自己起的子进程、残留的登记
 import { CWD } from './testkit'
 import { describe, expect, test } from 'bun:test'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 const { CLAUDE_DIR } = await import('./config')
 const { scanHolders } = await import('./terminal')
@@ -36,5 +36,17 @@ describe('scanHolders', () => {
       { pid: process.ppid, sessionId: B, entrypoint: 'cli', procStart: 'Thu Jan  1 00:00:00 1970' },
     ])
     expect((await scanHolders(() => false)).size).toBe(0)
+  })
+
+  test.if(process.platform === 'linux')('Linux 上新版登记的是 /proc 里的 starttime：对得上的算，对不上的不算；带上在等什么', async () => {
+    // 父进程是 bun，进程名没有空格，直接按空格切
+    const start = readFileSync(`/proc/${process.ppid}/stat`, 'utf8').split(' ')[21]
+    register([
+      { pid: process.ppid, sessionId: B, entrypoint: 'cli', procStart: start, status: 'waiting', waitingFor: 'permission prompt' },
+      { pid: process.pid, sessionId: A, entrypoint: 'cli', procStart: '1' },
+    ])
+    const holders = await scanHolders(() => false)
+    expect([...holders.keys()]).toEqual([B])
+    expect(holders.get(B)).toMatchObject({ status: 'waiting', waitingFor: 'permission prompt' })
   })
 })

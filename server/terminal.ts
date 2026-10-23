@@ -1,6 +1,7 @@
 // 终端里正在跑的会话：读 Claude Code 的运行中会话登记表 ~/.claude/sessions/<pid>.json。
 // 判断「进程还在」照抄 Claude Code 自己的做法：pid 活着，并且启动时间与登记的 procStart 一致（残留的登记可能撞上被复用的 pid）。
-// procStart 是 macOS / Linux 上 ps 的 lstart；Windows 上 Claude Code 登记的是 procStartFt（FILETIME），不比对，只看 pid 活着。
+// procStart 在 macOS 上是 ps 的 lstart；Linux 上新版（实测 2.1.307）是 /proc/<pid>/stat 的 starttime（纯数字），按格式分别比对。
+// Windows 上 Claude Code 登记的是 procStartFt（FILETIME），不比对，只看 pid 活着。
 // 同目录的 <pid>.<hash>.key 是密钥，只读 <pid>.json
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -17,6 +18,8 @@ export interface Holder {
   cwd: string
   /** busy | shell | idle | waiting */
   status?: string
+  /** waiting 时在等什么。实测（2.1.307）工具审批是 permission prompt；还有 dialog open（终端里自己打开的 /config 之类）、input needed、sandbox request */
+  waitingFor?: string
   updatedAt: number
 }
 
@@ -27,6 +30,7 @@ interface Record {
   kind?: string
   entrypoint?: string
   status?: string
+  waitingFor?: string
   procStart?: string
   parkedJobId?: string
   updatedAt?: number
@@ -66,6 +70,17 @@ async function lookup(pids: number[]) {
   }
 }
 
+/** Linux 的 starttime：/proc/<pid>/stat 第 22 项（开机后的时钟 tick）。进程名在括号里、可能带空格，从最后一个右括号后面数，那里是第 3 项 */
+async function lookupStat(pids: number[]) {
+  await Promise.all(
+    pids.map(async (pid) => {
+      const stat = await readFile(`/proc/${pid}/stat`, 'utf8').catch(() => '')
+      const t = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19]
+      if (t) procs.set(pid, t)
+    }),
+  )
+}
+
 /**
  * sessionId → 持有它的终端进程。服务端自己起的 claude 子进程也会登记（entrypoint 为 sdk-ts），
  * 按「sdk-ts 且会话在服务端里」排除（ours）；终端里 resume 同一个会话的进程是 cli，不受影响
@@ -88,7 +103,9 @@ export async function scanHolders(ours: (sessionId: string) => boolean): Promise
 
   const pids = new Set(live.map((r) => r.pid))
   for (const pid of procs.keys()) if (!pids.has(pid)) procs.delete(pid)
-  await lookup(live.filter((r) => r.procStart && procs.get(r.pid) !== r.procStart).map((r) => r.pid))
+  const stale = live.filter((r) => r.procStart && procs.get(r.pid) !== r.procStart)
+  const tick = (r: Record) => /^\d+$/.test(r.procStart!)
+  await Promise.all([lookupStat(stale.filter(tick).map((r) => r.pid)), lookup(stale.filter((r) => !tick(r)).map((r) => r.pid))])
 
   const out = new Map<string, Holder>()
   for (const r of live) {
@@ -98,7 +115,7 @@ export async function scanHolders(ours: (sessionId: string) => boolean): Promise
     const prev = out.get(r.sessionId)
     // 同一个会话被多个进程持有时，取状态最新的那个
     if (prev && prev.updatedAt >= updatedAt) continue
-    out.set(r.sessionId, { pid: r.pid, sessionId: r.sessionId, cwd: r.cwd, status: r.status, updatedAt })
+    out.set(r.sessionId, { pid: r.pid, sessionId: r.sessionId, cwd: r.cwd, status: r.status, waitingFor: r.waitingFor, updatedAt })
   }
   return out
 }
