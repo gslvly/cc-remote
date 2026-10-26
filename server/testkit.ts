@@ -34,7 +34,8 @@ export class Transcript {
       type === 'user'
         ? { role: 'user', content }
         : { id: `msg_${uuid.slice(0, 8)}`, type: 'message', role: 'assistant', model: 'claude-haiku-4-5', content, stop_reason: 'end_turn', usage: { input_tokens: 1, output_tokens: 1 } }
-    const line = { type, uuid, parentUuid: ('parent' in o ? o.parent : this.last) ?? null, isSidechain: false, userType: 'external', sessionId: this.id, cwd: CWD, timestamp: new Date((this.t += 1000)).toISOString(), message, ...o.extra }
+    // 字段顺序同 CLI：cwd 在 message 后面，第一句带了大图时 SDK 在开头 64KB 里找不到它
+    const line = { parentUuid: ('parent' in o ? o.parent : this.last) ?? null, isSidechain: false, type, message, uuid, timestamp: new Date((this.t += 1000)).toISOString(), userType: 'external', cwd: CWD, sessionId: this.id, ...o.extra }
     appendFileSync(join(PROJECT, `${this.id}.jsonl`), JSON.stringify(line) + '\n')
     this.last = uuid
     return uuid

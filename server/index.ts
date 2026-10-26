@@ -34,7 +34,7 @@ import { pusher } from './push'
 import { listenUrls, printLoginQr } from './qr'
 import { pruneOnStart, sdkRoutes } from './sdk'
 import { ConflictError, type EventId } from './session'
-import { isEmpty, titleOf } from './transcript'
+import { isEmpty, titleOf, withCwd } from './transcript'
 import { quota } from './usage'
 import { validSubscription, WebPush } from './webpush'
 
@@ -150,7 +150,7 @@ api.post('/logout', auth.logout)
 
 // 最近目录：不自己记，按 listSessions 的 cwd 聚合（终端里用过的目录也在）；不在 roots 内的不列
 api.get('/recent', async (c) => {
-  const all = await byActivity((await listSessions({ limit: 500 })).filter((s) => !isEmpty(s)))
+  const all = await byActivity(await Promise.all((await listSessions({ limit: 500 })).filter((s) => !isEmpty(s)).map(withCwd)))
   const byCwd = new Map<string, Omit<RecentDir, 'lastTitle'> & { latest: SDKSessionInfo }>()
   for (const s of all) {
     if (!s.cwd) continue

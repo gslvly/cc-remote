@@ -8,7 +8,7 @@ import { CLAUDE_DIR } from './config'
 import { checkDir } from './fs'
 import { ConflictError, Session } from './session'
 import { type Holder, scanHolders } from './terminal'
-import { promptTitle, titleOf } from './transcript'
+import { promptTitle, sessionInfo, titleOf } from './transcript'
 import { onFacts } from './usage'
 
 /** 活着的子进程到上限、又都在忙 */
@@ -121,7 +121,7 @@ export class SessionManager {
     if (this.removing.has(id)) throw new ConflictError('正在删除')
     this.removing.add(id)
     try {
-      const meta = await getSessionInfo(id)
+      const meta = await sessionInfo(id)
       if (!meta?.cwd || !(await checkDir(meta.cwd, this.opts.roots)).ok) return false
       await this.scan()
       if (this.holders.has(id)) throw new ConflictError('这个会话还开在终端里，先在终端里退出再删')
@@ -172,7 +172,7 @@ export class SessionManager {
   }
 
   private async load(id: string): Promise<Session | undefined> {
-    const meta = await getSessionInfo(id)
+    const meta = await sessionInfo(id)
     if (!meta?.cwd) return
     const dir = await checkDir(meta.cwd, this.opts.roots)
     if (!dir.ok) return

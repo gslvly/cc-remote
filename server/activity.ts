@@ -1,7 +1,7 @@
 // 会话的最后活动时间：transcript 里最后一条带时间的记录。
 // 不用 SDK 的 lastModified（文件修改时间）：终端里开着的 Claude Code 每小时把当前会话的 transcript touch 一下
 // （防着别的进程按修改时间清理过期会话时删掉它），闲着的会话每小时就跳到列表前面一次。
-// 终端在等批准时是哪次工具调用（推送里要写）也从末尾读。会话标题缺第一句时从开头读（transcript.ts 的 titleOf）
+// 终端在等批准时是哪次工具调用（推送里要写）也从末尾读。缺第一句、缺 cwd 时从开头读（transcript.ts 的 titleOf、withCwd）
 import type { SDKSessionInfo } from '@anthropic-ai/claude-agent-sdk'
 import { type FileHandle, open, readdir } from 'node:fs/promises'
 import { join } from 'node:path'

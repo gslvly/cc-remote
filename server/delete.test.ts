@@ -35,6 +35,19 @@ describe('删会话', () => {
     m.closeAll()
   })
 
+  test('第一句带了大图，SDK 在开头 64KB 里找不到 cwd：照样打得开、删得掉', async () => {
+    const m = manager()
+    const t = new Transcript()
+    const image = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'A'.repeat(200_000) } }
+    t.add('user', [image, { type: 'text', text: '一个是2024年，一个是2026年' }])
+    t.reply('看到了')
+    expect((await getSessionInfo(t.id))?.cwd).toBeUndefined()
+    expect((await m.open(t.id))?.info()).toMatchObject({ cwd: realpathSync(CWD), title: '一个是2024年，一个是2026年' })
+    expect(await m.remove(t.id)).toBe(true)
+    expect(await m.open(t.id)).toBeUndefined()
+    m.closeAll()
+  })
+
   test('没有的、不是 uuid 的：false', async () => {
     const m = manager()
     expect(await m.remove(crypto.randomUUID())).toBe(false)

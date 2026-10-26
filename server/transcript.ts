@@ -1,6 +1,6 @@
 // 读 transcript（Claude Code 自己写的会话记录），转成会话事件：历史会话和终端会话的内容都从这里来。
 // 用 SDK 的 getSessionMessages：它按 parentUuid 串出主链（只含最近一次压缩之后的部分），与 resume 看到的一致
-import { getSessionMessages, type SDKMessage, type SDKSessionInfo, type SessionMessage } from '@anthropic-ai/claude-agent-sdk'
+import { getSessionInfo, getSessionMessages, type SDKMessage, type SDKSessionInfo, type SessionMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { SessionEvent } from '../shared/protocol'
 import { openTranscript } from './activity'
 import { slim } from './slim'
@@ -20,42 +20,79 @@ export async function titleOf(s: SDKSessionInfo): Promise<string> {
   return s.customTitle || s.firstPrompt || (await firstPrompt(s)) || s.summary
 }
 
+/**
+ * getSessionInfo 补上 cwd：SDK 也只在开头 64KB 里找它（CLI 把 cwd 写在 message 后面），
+ * 第一句带了大图就没有 cwd，会话一关就打不开、删不掉
+ */
+export async function sessionInfo(id: string): Promise<SDKSessionInfo | undefined> {
+  const s = await getSessionInfo(id)
+  return s && withCwd(s)
+}
+
+/** cwd 不会再变，读到了就记下 */
+const cwds = new Map<string, string>()
+
+/** 同 SDK 取开头第一条带 cwd 的记录里的：会话中途 cd 过的，后面的记录里是别的目录 */
+export async function withCwd(s: SDKSessionInfo): Promise<SDKSessionInfo> {
+  if (s.cwd) return s
+  const cwd =
+    cwds.get(s.sessionId) ??
+    (await fromHead(s, (line) => {
+      if (!line.includes('"cwd"')) return
+      try {
+        const cwd = (JSON.parse(line) as { cwd?: unknown }).cwd
+        return typeof cwd === 'string' ? cwd : undefined
+      } catch {
+        return
+      }
+    }))
+  if (cwd) cwds.set(s.sessionId, cwd)
+  return { ...s, cwd }
+}
+
 /** 第一句不会再变，读到了就记下 */
 const firsts = new Map<string, string>()
 /** 第一句前面只有几行元数据；带的图多也就几 MB，再往后不找了 */
 const FIRST_WITHIN = 16 << 20
 
-async function firstPrompt(s: SDKSessionInfo): Promise<string | undefined> {
-  const hit = firsts.get(s.sessionId)
-  if (hit) return hit
+/** 从文件开头一行行读，pick 给出结果就停 */
+async function fromHead<T>(s: Pick<SDKSessionInfo, 'sessionId' | 'cwd'>, pick: (line: string) => T | undefined): Promise<T | undefined> {
   const f = await openTranscript(s)
   if (!f) return
-  // 斜杠命令（如 /clear）、只有图的同 SDK：后面没有带字的一句才用它，也不记下（有了带字的就换）
-  let fallback: string | undefined
   let read = 0
   try {
     for await (const line of f.readLines()) {
-      if ((read += line.length) > FIRST_WITHIN) break
-      if (!line.includes('"type":"user"')) continue
-      let ev: SessionEvent | undefined
-      try {
-        ev = toEvent(JSON.parse(line) as Raw)
-      } catch {
-        continue
-      }
-      if (ev?.type !== 'user_input') continue
-      if (line.includes('<command-name>') || !ev.text.trim()) {
-        fallback ??= promptTitle(ev.text)
-        continue
-      }
-      const title = promptTitle(ev.text)
-      firsts.set(s.sessionId, title)
-      return title
+      if ((read += line.length) > FIRST_WITHIN) return
+      const v = pick(line)
+      if (v !== undefined) return v
     }
   } finally {
     await f.close()
   }
-  return fallback
+}
+
+async function firstPrompt(s: SDKSessionInfo): Promise<string | undefined> {
+  const hit = firsts.get(s.sessionId)
+  if (hit) return hit
+  // 斜杠命令（如 /clear）、只有图的同 SDK：后面没有带字的一句才用它，也不记下（有了带字的就换）
+  let fallback: string | undefined
+  const title = await fromHead(s, (line) => {
+    if (!line.includes('"type":"user"')) return
+    let ev: SessionEvent | undefined
+    try {
+      ev = toEvent(JSON.parse(line) as Raw)
+    } catch {
+      return
+    }
+    if (ev?.type !== 'user_input') return
+    if (line.includes('<command-name>') || !ev.text.trim()) {
+      fallback ??= promptTitle(ev.text)
+      return
+    }
+    return promptTitle(ev.text)
+  })
+  if (title) firsts.set(s.sessionId, title)
+  return title ?? fallback
 }
 
 /** /clear 之后什么都没做留下的空会话 */
