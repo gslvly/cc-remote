@@ -2,13 +2,61 @@
 // 用 SDK 的 getSessionMessages：它按 parentUuid 串出主链（只含最近一次压缩之后的部分），与 resume 看到的一致
 import { getSessionMessages, type SDKMessage, type SDKSessionInfo, type SessionMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { SessionEvent } from '../shared/protocol'
+import { openTranscript } from './activity'
 import { slim } from './slim'
+
+/** 第一句只有图没有字时的标题，等有带字的一句再换成它 */
+export const IMAGE_ONLY = '[图片]'
+
+/** 一句话当标题：第一行，最多 80 字 */
+export const promptTitle = (text: string) => text.trim().split('\n')[0]!.slice(0, 80) || IMAGE_ONLY
 
 /**
  * 会话标题：/rename 的或终端自动生成的（customTitle 两样都含），没有就用第一句。
- * 不用 summary：没标题时它取最后一句，SDK 起的会话（手机上开的）一直没标题，列表里就跟着最后一句变
+ * 不用 summary：没标题时它取最后一句，SDK 起的会话（手机上开的）一直没标题，列表里就跟着最后一句变。
+ * SDK 只在开头 64KB 里找第一句，第一句带了图（一行几百 KB）就找不到，这时自己从文件开头读
  */
-export const titleOf = (s: SDKSessionInfo) => s.customTitle || s.firstPrompt || s.summary
+export async function titleOf(s: SDKSessionInfo): Promise<string> {
+  return s.customTitle || s.firstPrompt || (await firstPrompt(s)) || s.summary
+}
+
+/** 第一句不会再变，读到了就记下 */
+const firsts = new Map<string, string>()
+/** 第一句前面只有几行元数据；带的图多也就几 MB，再往后不找了 */
+const FIRST_WITHIN = 16 << 20
+
+async function firstPrompt(s: SDKSessionInfo): Promise<string | undefined> {
+  const hit = firsts.get(s.sessionId)
+  if (hit) return hit
+  const f = await openTranscript(s)
+  if (!f) return
+  // 斜杠命令（如 /clear）、只有图的同 SDK：后面没有带字的一句才用它，也不记下（有了带字的就换）
+  let fallback: string | undefined
+  let read = 0
+  try {
+    for await (const line of f.readLines()) {
+      if ((read += line.length) > FIRST_WITHIN) break
+      if (!line.includes('"type":"user"')) continue
+      let ev: SessionEvent | undefined
+      try {
+        ev = toEvent(JSON.parse(line) as Raw)
+      } catch {
+        continue
+      }
+      if (ev?.type !== 'user_input') continue
+      if (line.includes('<command-name>') || !ev.text.trim()) {
+        fallback ??= promptTitle(ev.text)
+        continue
+      }
+      const title = promptTitle(ev.text)
+      firsts.set(s.sessionId, title)
+      return title
+    }
+  } finally {
+    await f.close()
+  }
+  return fallback
+}
 
 /** /clear 之后什么都没做留下的空会话 */
 export const isEmpty = (s: SDKSessionInfo) => s.summary === '/clear'

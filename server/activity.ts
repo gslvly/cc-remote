@@ -1,7 +1,7 @@
 // 会话的最后活动时间：transcript 里最后一条带时间的记录。
 // 不用 SDK 的 lastModified（文件修改时间）：终端里开着的 Claude Code 每小时把当前会话的 transcript touch 一下
 // （防着别的进程按修改时间清理过期会话时删掉它），闲着的会话每小时就跳到列表前面一次。
-// 终端在等批准时是哪次工具调用（推送里要写）也从末尾读
+// 终端在等批准时是哪次工具调用（推送里要写）也从末尾读。会话标题缺第一句时从开头读（transcript.ts 的 titleOf）
 import type { SDKSessionInfo } from '@anthropic-ai/claude-agent-sdk'
 import { type FileHandle, open, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -90,7 +90,7 @@ async function tail(f: FileHandle, size: number, w: number) {
 }
 
 /** 先按 cwd 找项目目录；会话中途 cd 过、路径太长被截断加哈希的，挨个项目目录找 */
-async function openTranscript(s: Pick<SDKSessionInfo, 'sessionId' | 'cwd'>) {
+export async function openTranscript(s: Pick<SDKSessionInfo, 'sessionId' | 'cwd'>) {
   const name = `${s.sessionId}.jsonl`
   const tryOpen = (dir: string) => open(join(PROJECTS, dir, name)).catch(() => undefined)
   const guess = s.cwd?.replace(/[^a-zA-Z0-9]/g, '-')

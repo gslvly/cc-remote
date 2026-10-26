@@ -1,4 +1,4 @@
-import { listSessions } from '@anthropic-ai/claude-agent-sdk'
+import { listSessions, type SDKSessionInfo } from '@anthropic-ai/claude-agent-sdk'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join, posix } from 'node:path'
 import { type Context, Hono } from 'hono'
@@ -151,17 +151,21 @@ api.post('/logout', auth.logout)
 // 最近目录：不自己记，按 listSessions 的 cwd 聚合（终端里用过的目录也在）；不在 roots 内的不列
 api.get('/recent', async (c) => {
   const all = await byActivity((await listSessions({ limit: 500 })).filter((s) => !isEmpty(s)))
-  const byCwd = new Map<string, RecentDir>()
+  const byCwd = new Map<string, Omit<RecentDir, 'lastTitle'> & { latest: SDKSessionInfo }>()
   for (const s of all) {
     if (!s.cwd) continue
     const d = byCwd.get(s.cwd)
-    if (!d) byCwd.set(s.cwd, { cwd: s.cwd, lastModified: s.lastModified, sessions: 1, lastTitle: titleOf(s) })
+    if (!d) byCwd.set(s.cwd, { cwd: s.cwd, lastModified: s.lastModified, sessions: 1, latest: s })
     else {
       d.sessions++
-      if (s.lastModified > d.lastModified) Object.assign(d, { lastModified: s.lastModified, lastTitle: titleOf(s) })
+      if (s.lastModified > d.lastModified) Object.assign(d, { lastModified: s.lastModified, latest: s })
     }
   }
-  const usable = await Promise.all([...byCwd.values()].map(async (d) => ((await checkDir(d.cwd, roots)).ok ? d : undefined)))
+  const usable = await Promise.all(
+    [...byCwd.values()].map(async ({ latest, ...d }): Promise<RecentDir | undefined> =>
+      (await checkDir(d.cwd, roots)).ok ? { ...d, lastTitle: await titleOf(latest) } : undefined,
+    ),
+  )
   const dirs = usable
     .filter((d) => d !== undefined)
     .sort((a, b) => b.lastModified - a.lastModified)
@@ -197,12 +201,14 @@ api.get('/dir/sessions', async (c) => {
   // SDK 按文件修改时间排序分页，要按最后活动时间排就得全取出来自己分
   const list = await byActivity((await listSessions({ dir: dir.path, includeWorktrees: false })).filter((s) => !isEmpty(s)))
   return c.json<DirSessions>({
-    sessions: list.slice(offset, offset + DIR_PAGE).map((s) => ({
-      id: s.sessionId,
-      title: titleOf(s),
-      lastModified: s.lastModified,
-      branch: s.gitBranch,
-    })),
+    sessions: await Promise.all(
+      list.slice(offset, offset + DIR_PAGE).map(async (s) => ({
+        id: s.sessionId,
+        title: await titleOf(s),
+        lastModified: s.lastModified,
+        branch: s.gitBranch,
+      })),
+    ),
     more: list.length > offset + DIR_PAGE,
   })
 })

@@ -8,7 +8,7 @@ import { CLAUDE_DIR } from './config'
 import { checkDir } from './fs'
 import { ConflictError, Session } from './session'
 import { type Holder, scanHolders } from './terminal'
-import { titleOf } from './transcript'
+import { promptTitle, titleOf } from './transcript'
 import { onFacts } from './usage'
 
 /** 活着的子进程到上限、又都在忙 */
@@ -47,8 +47,7 @@ export class SessionManager {
     o: { images?: ImageAttachment[]; mode?: PermissionMode; model?: string; effort?: EffortLevel } = {},
   ): Promise<Session> {
     this.makeRoom()
-    const title = prompt.trim().split('\n')[0]!.slice(0, 80) || '[图片]'
-    const s = new Session(crypto.randomUUID(), cwd, title, this.changed, { fresh: true })
+    const s = new Session(crypto.randomUUID(), cwd, promptTitle(prompt), this.changed, { fresh: true })
     s.permissionMode = o.mode
     this.sessions.set(s.id, s)
     // 还没起子进程，只是记下，起的时候带上
@@ -177,11 +176,11 @@ export class SessionManager {
     if (!meta?.cwd) return
     const dir = await checkDir(meta.cwd, this.opts.roots)
     if (!dir.ok) return
-    const at = await lastActivity(meta)
+    const [at, title] = await Promise.all([lastActivity(meta), titleOf(meta)])
     // 等待期间扫登记表时已经加进来了；或者开始删了
     const existing = this.sessions.get(id)
     if (existing || this.removing.has(id)) return existing
-    const s = new Session(id, dir.path, titleOf(meta), this.changed, { fresh: false, lastActivity: at })
+    const s = new Session(id, dir.path, title, this.changed, { fresh: false, lastActivity: at })
     this.sessions.set(id, s)
     s.setHolder(this.holders.get(id))
     return s
@@ -219,9 +218,9 @@ export class SessionManager {
         // transcript 写出来之前没东西可看，等下一轮
         const meta = await getSessionInfo(id)
         if (!meta) continue
-        const at = await lastActivity(meta)
+        const [at, title] = await Promise.all([lastActivity(meta), titleOf(meta)])
         if (this.sessions.has(id) || this.removing.has(id)) continue
-        s = new Session(id, h.cwd, titleOf(meta), this.changed, { fresh: false, lastActivity: at })
+        s = new Session(id, h.cwd, title, this.changed, { fresh: false, lastActivity: at })
         this.sessions.set(id, s)
       }
       s.setHolder(h)

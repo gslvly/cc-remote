@@ -6,6 +6,21 @@ const { Session } = await import('./session')
 
 const open = (t: Transcript) => new Session(t.id, CWD, 't', () => {}, { fresh: false })
 
+test('手机上开的第一句只有图：标题先是「[图片]」，第一句带字的来了换成它，之后不再变', async () => {
+  const s = new Session(new Transcript().id, CWD, '[图片]', () => {}, { fresh: true })
+  s.send('', [{ mediaType: 'image/png', data: 'AAAA' }])
+  await idle(s)
+  s.send('/model haiku')
+  await idle(s)
+  expect(s.title).toBe('[图片]')
+  s.send('这是哪\n第二行')
+  await idle(s)
+  s.send('那旁边的呢')
+  await idle(s)
+  expect(s.title).toBe('这是哪')
+  s.close()
+})
+
 describe('Session 与 transcript 对齐', () => {
   test('历史会话：整段载入', async () => {
     const t = new Transcript()

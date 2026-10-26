@@ -20,7 +20,7 @@ import { pusher } from './push'
 import { Run, type RunHost } from './run'
 import { bashInput, bashOutput, runShell } from './shell'
 import type { Holder } from './terminal'
-import { fromUserText, keptBefore, readTranscript, titleOf, type TranscriptEntry } from './transcript'
+import { fromUserText, IMAGE_ONLY, keptBefore, promptTitle, readTranscript, titleOf, type TranscriptEntry } from './transcript'
 import { modelFacts, UsageTracker } from './usage'
 
 export type { EventId }
@@ -185,7 +185,7 @@ export class Session implements RunHost {
     if (this.live || this.resumeAt || this.shell) return
     const meta = await getSessionInfo(this.id)
     if (!meta) return // 还没写出 transcript
-    this.setTitle(titleOf(meta))
+    this.setTitle(await titleOf(meta))
     const stamp = `${meta.fileSize}:${meta.lastModified}`
     if (stamp === this.stamp) return
     const entries = await readTranscript(this.id)
@@ -233,10 +233,9 @@ export class Session implements RunHost {
       else if (active) this.onChange()
       // 没人看时不 sync，标题（终端自动起的、/rename 的）跟着终端状态变化刷一下：/clear 刚换上的新会话一开始只有 /clear
       if (changed && !this.watched)
-        void getSessionInfo(this.id).then(
-          (m) => m && this.setTitle(titleOf(m)),
-          () => {},
-        )
+        void getSessionInfo(this.id)
+          .then(async (m) => m && this.setTitle(await titleOf(m)))
+          .catch(() => {})
     } else if (this.terminal === 'running') {
       // 终端退出了，或 /clear 换了新会话：这个 id 没人占着，就是普通的历史会话，发消息直接 resume
       this.terminal = undefined
@@ -264,6 +263,8 @@ export class Session implements RunHost {
     const uuid = crypto.randomUUID()
     this.push({ type: 'user_input', text, uuid, ...(images.length && { images: images.length }) })
     run.send(text, uuid, images)
+    // 第一句只有图：这是第一句带字的（斜杠命令不算，同 titleOf），就用它
+    if (this.title === IMAGE_ONLY && text.trim() && !text.trim().startsWith('/')) this.title = promptTitle(text)
     this.emitState()
   }
 
