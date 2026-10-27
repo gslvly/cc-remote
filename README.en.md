@@ -24,6 +24,7 @@ Keywords: `claude-code` `claude-code-remote` `remote-control` `remote-control-al
 - 🗂️ **Parallel sessions**: switch sessions from the top tab bar; a banner flags pending approvals in other sessions
 - ✅ **Approvals passed straight through**: permission requests (allow / allow for this session / deny), `AskUserQuestion` options, plan approval, interrupt, permission-mode switching (the terminal's `Esc` / `Shift+Tab`)
 - ⌨️ **Everyday terminal moves**: `/` commands and skills, images / screenshots, `!` shell commands, model / effort switching, rewind (double `Esc`), per-session drafts
+- 📂 **View and grab files**: tap "打开" on a tool card for any file Claude read or wrote, or turn on "文件" in the browser tab; code with line numbers, rendered Markdown, images / audio / video / PDF inline, download or save to the phone via the system share sheet (limited to roots)
 - 👀 **Read-only view of terminal sessions**: watch sessions running in your computer's terminal live; once the terminal exits or runs `/clear`, it becomes a history session you can keep chatting in from the phone (or `claude --resume <id>`)
 - 📊 **Status bar**: model, context usage, cache hit rate, 5h / 7d quota — same numbers as the terminal statusline
 - 🔔 **Push to phone**: when approval is needed, a turn finishes, or quota is rejected (with deep links); also when a session in your computer's terminal has been waiting for approval for over 10 seconds, so you know to go back. Native PWA notifications over HTTPS, or via Bark / ntfy

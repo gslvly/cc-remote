@@ -1,7 +1,7 @@
-// 选目录用：只看目录、只在 roots 内。不是文件浏览器，不读文件内容（除了 .git/HEAD 取分支）
+// 选目录、看文件用，都只在 roots 内：列目录和文件、新建 / 删文件夹、取单个文件（看、下载）。不写文件
 import { lstat, mkdir, readdir, readFile, realpath, rm, stat } from 'node:fs/promises'
 import path, { basename, isAbsolute, join, resolve } from 'node:path'
-import type { DirEntry } from '../shared/protocol'
+import type { DirEntry, FileEntry } from '../shared/protocol'
 
 /** child 是 dir 本身或在 dir 里面。用 relative 判断，Windows 的 \ 和盘符大小写也对；p 传 path.win32 是给单测用的 */
 export function within(child: string, dir: string, p: typeof path = path) {
@@ -26,6 +26,19 @@ export async function checkDir(p: unknown, roots: string[]): Promise<DirCheck> {
   if (!real || !(await isDir(real))) return fail(404, '目录不存在')
   if (!inRoots(real, roots)) return fail(403, '目录不在 roots 内（见 ~/.cc-remote/config.json）')
   return { ok: true, path: real }
+}
+
+export type FileCheck = { ok: true; file: FileEntry } | Fail
+
+/** 同 checkDir，要的是普通文件。name 取给的路径（符号链接显示链接的名字），path 是真实路径 */
+export async function checkFile(p: unknown, roots: string[]): Promise<FileCheck> {
+  if (typeof p !== 'string' || !isAbsolute(p)) return fail(400, '要给绝对路径')
+  const real = await realpath(p).catch(() => '')
+  const s = real ? await stat(real).catch(() => undefined) : undefined
+  if (!s) return fail(404, '文件不存在')
+  if (!s.isFile()) return fail(400, '不是文件')
+  if (!inRoots(real, roots)) return fail(403, '文件不在 roots 内（见 ~/.cc-remote/config.json）')
+  return { ok: true, file: { name: basename(p), path: real, size: s.size, mtime: Math.floor(s.mtimeMs) } }
 }
 
 /** 在 parent 下建一层文件夹。名字不能带分隔符、不能是 . 和 ..；已有同名的就报错，不覆盖 */
@@ -87,7 +100,8 @@ export const dirEntry = async (path: string, name = basename(path)): Promise<Dir
   branch: await gitBranch(path),
 })
 
-const byName = (a: DirEntry, b: DirEntry) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+const byName = (a: { name: string }, b: { name: string }) =>
+  a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
 
 /** 只列子目录；点开头的算隐藏目录。符号链接指向的目录也要在 roots 内才列 */
 export async function listDirs(dir: string, roots: string[], hidden: boolean): Promise<DirEntry[]> {
@@ -101,6 +115,20 @@ export async function listDirs(dir: string, roots: string[], hidden: boolean): P
         if (!real || !inRoots(real, roots) || !(await isDir(real))) return
       } else if (!d.isDirectory()) return
       return dirEntry(path, d.name)
+    }),
+  )
+  return entries.filter((e) => e !== undefined).sort(byName)
+}
+
+/** 只列文件；点开头的算隐藏文件。符号链接指向的文件也要在 roots 内才列 */
+export async function listFiles(dir: string, roots: string[], hidden: boolean): Promise<FileEntry[]> {
+  const items = await readdir(dir, { withFileTypes: true })
+  const entries = await Promise.all(
+    items.map(async (d) => {
+      if (!hidden && d.name.startsWith('.')) return
+      if (!d.isFile() && !d.isSymbolicLink()) return
+      const f = await checkFile(join(dir, d.name), roots)
+      return f.ok ? f.file : undefined
     }),
   )
   return entries.filter((e) => e !== undefined).sort(byName)

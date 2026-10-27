@@ -3,6 +3,7 @@ import type { LiveBlock } from '../../../shared/protocol'
 import { shortPath } from '../format'
 import type { Item, ToolItem, ToolStatus, UserItem } from '../session/view'
 import { DiffStat, DiffView, editHunks } from './Diff'
+import { openFile } from './FileSheet'
 import { MessageImages } from './Lightbox'
 import { Markdown } from './Markdown'
 import { questionsOf } from './QuestionSheet'
@@ -180,22 +181,47 @@ function ToolDetail(props: { item: ToolItem }) {
   )
 }
 
+/** 读写文件的工具，路径在 input 的哪个字段：跑完了行尾有「打开」 */
+const FILE_KEY: Partial<Record<string, string>> = {
+  Read: 'file_path',
+  Write: 'file_path',
+  Edit: 'file_path',
+  MultiEdit: 'file_path',
+  NotebookEdit: 'notebook_path',
+}
+
 function ToolRow(props: { item: ToolItem }) {
   const [open, setOpen] = createSignal(false)
   const hunks = createMemo(() => editHunks(props.item.name, props.item.input))
+  const file = () => {
+    const k = Object.hasOwn(FILE_KEY, props.item.name) ? FILE_KEY[props.item.name] : undefined
+    return k && props.item.status !== 'running' ? str(props.item.input[k]) : ''
+  }
   return (
     <div>
-      <button
-        onClick={() => setOpen(!open())}
-        class="flex w-full items-center gap-2 rounded-md py-1 text-left font-mono text-xs text-neutral-400"
-      >
-        <StatusIcon status={props.item.status} />
-        <span class="min-w-0 flex-1 truncate">{toolSummary(props.item.name, props.item.input)}</span>
-        <Show when={hunks()}>{(h) => <DiffStat hunks={h()} />}</Show>
-        <Show when={props.item.background && props.item.status === 'running'}>
-          <span class="shrink-0 text-neutral-600">后台</span>
+      <div class="flex items-center gap-1">
+        <button
+          onClick={() => setOpen(!open())}
+          class="flex min-w-0 flex-1 items-center gap-2 rounded-md py-1 text-left font-mono text-xs text-neutral-400"
+        >
+          <StatusIcon status={props.item.status} />
+          <span class="min-w-0 flex-1 truncate">{toolSummary(props.item.name, props.item.input)}</span>
+          <Show when={hunks()}>{(h) => <DiffStat hunks={h()} />}</Show>
+          <Show when={props.item.background && props.item.status === 'running'}>
+            <span class="shrink-0 text-neutral-600">后台</span>
+          </Show>
+        </button>
+        <Show when={file()}>
+          {(path) => (
+            <button
+              onClick={() => openFile(path())}
+              class="shrink-0 rounded px-1.5 py-0.5 text-xs text-neutral-500 active:bg-neutral-800"
+            >
+              打开
+            </button>
+          )}
         </Show>
-      </button>
+      </div>
       <Show when={open()}>
         <ToolDetail item={props.item} />
       </Show>

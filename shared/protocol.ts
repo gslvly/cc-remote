@@ -181,7 +181,7 @@ export interface RmdirBody {
   path: string
 }
 
-/** GET /api/fs/ls?path=&hidden=1 */
+/** GET /api/fs/ls?path=&hidden=1&files=1 */
 export interface FsList {
   /** 配置里允许浏览的目录（真实路径） */
   roots: string[]
@@ -189,6 +189,19 @@ export interface FsList {
   path: string | null
   branch?: string
   entries: DirEntry[]
+  /** 带 files=1 时才有：当前目录下的文件 */
+  files?: FileEntry[]
+}
+
+/** 一个文件；GET /api/fs/stat?path= 也返回它。文件本身是 GET /api/fs/file?path=（&dl=1 下载） */
+export interface FileEntry {
+  /** 给的路径的文件名（是符号链接时是链接的名字） */
+  name: string
+  /** 真实路径 */
+  path: string
+  size: number
+  /** 修改时间（毫秒） */
+  mtime: number
 }
 
 /** 目录页里的一个历史会话（包括终端里开的）。在跑的状态看概览流 */

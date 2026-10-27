@@ -1,4 +1,5 @@
 import { createMemo, Match, Switch } from 'solid-js'
+import { FileSheet } from './components/FileSheet'
 import { UpdateBanner } from './components/UpdateBanner'
 import { DirPage } from './pages/DirPage'
 import { Home } from './pages/Home'
@@ -32,6 +33,7 @@ export function App() {
         </Match>
       </Switch>
       <UpdateBanner />
+      <FileSheet />
     </>
   )
 }

@@ -1,15 +1,17 @@
 import { createEffect, createMemo, createSignal, For, isPending, Loading, Show } from 'solid-js'
 import type { DirEntry, FsList, MkdirBody, RmdirBody } from '../../../shared/protocol'
 import { api } from '../api'
-import { basename, crumbs, errorText, rootLabel } from '../format'
+import { basename, bytes, crumbs, errorText, rootLabel } from '../format'
 import { afterPaint } from '../frame'
 import { go } from '../router'
+import { openFile } from './FileSheet'
 
-// 上次浏览到的目录、是否显示隐藏目录，下次打开接着用
+// 上次浏览到的目录、是否显示隐藏的、是否列文件，下次打开接着用
 const PATH_KEY = 'ccr-browse-path'
-const HIDDEN_KEY = 'ccr-browse-hidden'
+const SWITCH_KEYS = { hidden: 'ccr-browse-hidden', files: 'ccr-browse-files' }
 
-type Target = { path: string | null; hidden: boolean }
+type Switches = { hidden: boolean; files: boolean }
+type Target = { path: string | null } & Switches
 /** 打开失败时 list 是上一个列表（没有就是 undefined），error 是原因 */
 type Shown = { list?: FsList; error: string }
 
@@ -17,6 +19,7 @@ const ls = (to: Target) => {
   const q = new URLSearchParams()
   if (to.path) q.set('path', to.path)
   if (to.hidden) q.set('hidden', '1')
+  if (to.files) q.set('files', '1')
   return api<FsList>(`/fs/ls?${q}`)
 }
 
@@ -30,10 +33,26 @@ const open = async (to: Target, prev?: FsList): Promise<Shown> => {
   }
 }
 
+/** 按下去是亮的 */
+function SwitchButton(props: { on: boolean; onClick: () => void; children: string }) {
+  return (
+    <button
+      onClick={() => props.onClick()}
+      aria-pressed={props.on ? 'true' : 'false'}
+      class={`shrink-0 rounded-lg border px-3 text-sm ${
+        props.on ? 'border-neutral-500 bg-neutral-800 text-neutral-100' : 'border-neutral-800 text-neutral-500'
+      }`}
+    >
+      {props.children}
+    </button>
+  )
+}
+
 export function DirBrowser(props: { favorites: Set<string> }) {
   const [target, setTarget] = createSignal<Target>({
     path: localStorage.getItem(PATH_KEY),
-    hidden: localStorage.getItem(HIDDEN_KEY) === '1',
+    hidden: localStorage.getItem(SWITCH_KEYS.hidden) === '1',
+    files: localStorage.getItem(SWITCH_KEYS.files) === '1',
   })
   const [filter, setFilter] = createSignal('')
   /** 新建、删除失败的原因；换目录时清掉 */
@@ -45,7 +64,7 @@ export function DirBrowser(props: { favorites: Set<string> }) {
   const enter = (path: string | null) => {
     setFilter('')
     setOpError('')
-    setTarget({ path, hidden: target().hidden })
+    setTarget({ ...target(), path })
   }
 
   // 建好直接进去，接着就能在里面开会话
@@ -70,17 +89,20 @@ export function DirBrowser(props: { favorites: Set<string> }) {
     }
   }
 
-  const toggleHidden = () => {
-    const hidden = !target().hidden
-    localStorage.setItem(HIDDEN_KEY, hidden ? '1' : '0')
-    setTarget({ path: shown().list?.path ?? null, hidden })
+  const toggle = (k: keyof Switches) => {
+    const on = !target()[k]
+    localStorage.setItem(SWITCH_KEYS[k], on ? '1' : '0')
+    setTarget({ ...target(), path: shown().list?.path ?? null, [k]: on })
   }
 
-  const entries = () => {
+  const matching = <T extends { name: string }>(all: T[] = []) => {
     const q = filter().trim().toLowerCase()
-    const all = shown().list?.entries ?? []
     return q ? all.filter((e) => e.name.toLowerCase().includes(q)) : all
   }
+  const entries = () => matching(shown().list?.entries)
+  const files = () => matching(shown().list?.files)
+  const empty = () =>
+    filter().trim() ? `没有匹配的${target().files ? '' : '目录'}` : target().files ? '空文件夹' : '没有子目录'
 
   return (
     <Loading fallback={<p class="text-sm text-neutral-500">加载中…</p>}>
@@ -139,15 +161,12 @@ export function DirBrowser(props: { favorites: Set<string> }) {
                   autocorrect="off"
                   class="min-w-0 flex-1 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-1.5 outline-none focus:border-neutral-600"
                 />
-                <button
-                  onClick={toggleHidden}
-                  aria-pressed={target().hidden ? 'true' : 'false'}
-                  class={`shrink-0 rounded-lg border px-3 text-sm ${
-                    target().hidden ? 'border-neutral-500 bg-neutral-800 text-neutral-100' : 'border-neutral-800 text-neutral-500'
-                  }`}
-                >
+                <SwitchButton on={target().hidden} onClick={() => toggle('hidden')}>
                   显示隐藏
-                </button>
+                </SwitchButton>
+                <SwitchButton on={target().files} onClick={() => toggle('files')}>
+                  文件
+                </SwitchButton>
                 <Show when={cur().path}>
                   {(path) => (
                     <button
@@ -165,10 +184,8 @@ export function DirBrowser(props: { favorites: Set<string> }) {
               </Show>
 
               <Show
-                when={entries().length}
-                fallback={
-                  <p class="py-4 text-center text-sm text-neutral-500">{filter().trim() ? '没有匹配的目录' : '没有子目录'}</p>
-                }
+                when={entries().length || files().length}
+                fallback={<p class="py-4 text-center text-sm text-neutral-500">{empty()}</p>}
               >
                 <ul
                   class={`divide-y divide-neutral-800 rounded-xl border border-neutral-800 transition-opacity ${
@@ -187,6 +204,17 @@ export function DirBrowser(props: { favorites: Set<string> }) {
                             <span class="max-w-[40%] shrink-0 truncate font-mono text-xs text-neutral-500">⎇ {e.branch}</span>
                           </Show>
                           <span class="text-neutral-600">›</span>
+                        </button>
+                      </li>
+                    )}
+                  </For>
+                  {/* 文件排在目录后面，点开全屏看 */}
+                  <For each={files()}>
+                    {(f) => (
+                      <li>
+                        <button onClick={() => openFile(f.path)} class="flex w-full items-center gap-2 px-3 py-2.5 text-left">
+                          <span class="min-w-0 flex-1 truncate text-neutral-300">{f.name}</span>
+                          <span class="shrink-0 text-xs text-neutral-500">{bytes(f.size)}</span>
                         </button>
                       </li>
                     )}
