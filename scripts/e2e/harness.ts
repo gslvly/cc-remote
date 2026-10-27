@@ -164,8 +164,9 @@ export async function run(main: (ctx: { page: Page }) => Promise<void>, opts: { 
 
   try {
     if (opts.browser) {
-      // 用本机装的 Chrome，不装 playwright 自带的浏览器
-      browser = await chromium.launch({ channel: 'chrome' })
+      // 用本机装的 Chrome，不装 playwright 自带的浏览器；没装在默认位置（WSL）就用 CCR_CHROME 指过去
+      const chrome = process.env.CCR_CHROME
+      browser = await chromium.launch(chrome ? { executablePath: chrome } : { channel: 'chrome' })
       const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true })
       page = await ctx.newPage()
       page.on('console', (m) => ['warning', 'error'].includes(m.type()) && console.log(`  [console] ${m.text()}`))

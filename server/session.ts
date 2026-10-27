@@ -16,6 +16,7 @@ import type {
 import { EventBuffer, type EventId } from './buffer'
 import { resolveModel } from './catalog'
 import { rewindFiles } from './child'
+import { rememberSent } from './images'
 import { pusher } from './push'
 import { Run, type RunHost } from './run'
 import { bashInput, bashOutput, runShell } from './shell'
@@ -262,6 +263,7 @@ export class Session implements RunHost {
     this.owned = true
     const uuid = crypto.randomUUID()
     this.push({ type: 'user_input', text, uuid, ...(images.length && { images: images.length }) })
+    rememberSent(uuid, images)
     run.send(text, uuid, images)
     // 第一句只有图：这是第一句带字的（斜杠命令不算，同 titleOf），就用它
     if (this.title === IMAGE_ONLY && text.trim() && !text.trim().startsWith('/')) this.title = promptTitle(text)

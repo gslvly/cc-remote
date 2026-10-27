@@ -1,6 +1,7 @@
 import { createEffect, createSignal, For, onSettled, Show, untrack } from 'solid-js'
 import { Composer } from '../components/Composer'
 import { ItemView, LiveView } from '../components/ItemView'
+import { ImageBase } from '../components/Lightbox'
 import { ModelSheet } from '../components/ModelSheet'
 import { PermissionSheet, type SheetProps } from '../components/PermissionSheet'
 import { PlanSheet } from '../components/PlanSheet'
@@ -230,9 +231,11 @@ export function SessionPage(props: { id: string }) {
               {s.loadingOlder() ? '加载中…' : '更早的消息'}
             </button>
           </Show>
-          <For each={view.items}>
-            {(item) => <ItemView item={item} sub={view.sub} onRewind={rewindable() ? setRewinding : undefined} />}
-          </For>
+          <ImageBase value={`/api/sessions/${untrack(() => props.id)}/images`}>
+            <For each={view.items}>
+              {(item) => <ItemView item={item} sub={view.sub} onRewind={rewindable() ? setRewinding : undefined} />}
+            </For>
+          </ImageBase>
           <Show when={live()}>{(b) => <LiveView block={b()} />}</Show>
           <Show when={view.compacting}>
             <p class="animate-pulse text-xs text-neutral-500">压缩对话中…</p>

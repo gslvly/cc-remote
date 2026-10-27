@@ -3,6 +3,7 @@ import type { LiveBlock } from '../../../shared/protocol'
 import { shortPath } from '../format'
 import type { Item, ToolItem, ToolStatus, UserItem } from '../session/view'
 import { DiffStat, DiffView, editHunks } from './Diff'
+import { MessageImages } from './Lightbox'
 import { Markdown } from './Markdown'
 import { questionsOf } from './QuestionSheet'
 
@@ -113,7 +114,9 @@ function Pre(props: ParentProps<{ error?: boolean }>) {
 function Output(props: { item: ToolItem }) {
   return (
     <>
-      <Show when={props.item.output !== undefined}>
+      <Show when={props.item.images}>{(n) => <MessageImages id={props.item.id} count={n()} />}</Show>
+      {/* 只有图的（Read 读图片）不再写「无输出」 */}
+      <Show when={props.item.output !== undefined && (props.item.output || !props.item.images)}>
         <Pre error={props.item.status === 'error'}>{props.item.output || '（无输出）'}</Pre>
       </Show>
       <Show when={props.item.summary}>
@@ -283,7 +286,13 @@ function UserBubble(props: { item: UserItem } & OnRewind) {
         onClick={() => rewind() && setOpen(!open())}
         class="max-w-[85%] rounded-2xl rounded-br-md bg-neutral-800 px-3.5 py-2 whitespace-pre-wrap wrap-anywhere"
       >
-        <Show when={props.item.images}>{(n) => <div class="text-sm text-neutral-400">［{n()} 张图片］</div>}</Show>
+        <Show when={props.item.images}>
+          {(n) => (
+            <Show when={props.item.uuid} fallback={<div class="text-sm text-neutral-400">［{n()} 张图片］</div>}>
+              {(uuid) => <MessageImages id={uuid()} count={n()} class="mb-1.5" />}
+            </Show>
+          )}
+        </Show>
         {longInput(props.item.text) && !full() ? inputHead(props.item.text) : props.item.text}
         <Show when={longInput(props.item.text)}>
           <button

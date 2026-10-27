@@ -12,6 +12,8 @@ export interface ToolItem {
   input: Record<string, unknown>
   status: ToolStatus
   output?: string
+  /** 结果里有几张图（Read 读图片），图本身按需去取 */
+  images?: number
   /** 放到后台跑的（子代理、后台 Bash）：tool_result 只说明已启动，跑完看 task_notification */
   background?: boolean
   /** 后台任务结束时的一句话摘要 */
@@ -86,8 +88,10 @@ function contentBlocks(content: unknown): Block[] {
   return Array.isArray(content) ? (content as Block[]) : []
 }
 
-function toolResultText(content: unknown): string {
+/** skipImages：图另外显示成缩略图，文字里不再写 [image] */
+function toolResultText(content: unknown, skipImages: boolean): string {
   return contentBlocks(content)
+    .filter((b) => !(skipImages && b.type === 'image'))
     .map((b) => (b.type === 'text' ? String(b.text) : `[${b.type}]`))
     .join('\n')
 }
@@ -216,12 +220,15 @@ export function applyEvents(v: View, envs: EventEnvelope[]): View {
         contentBlocks(msg.message.content).forEach((b, i) => {
           if (b.type === 'tool_result') {
             const id = String(b.tool_use_id)
-            const output = toolResultText(b.content)
+            // 子代理的图在它自己的 transcript 里，服务端取不到，照旧写 [image]
+            const images = parent ? 0 : contentBlocks(b.content).filter((x) => x.type === 'image').length
+            const output = toolResultText(b.content, images > 0)
             if (!parent) onTodoResult(id, output, !!b.is_error)
             // 放到后台的，结果只是「已启动」，状态等 task_notification
             updateTool(id, parent, (t) => ({
               ...t,
               output: t.name === 'Agent' || t.name === 'Task' ? agentReport(output) : output,
+              ...(images && { images }),
               status: b.is_error ? 'error' : t.background ? t.status : 'ok',
             }))
           } else if (b.type === 'text' && !parent) {

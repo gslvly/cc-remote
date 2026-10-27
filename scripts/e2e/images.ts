@@ -1,11 +1,22 @@
 // 发图片：附件按钮选一张大图、粘贴一张小图，一起发给 Claude
 //  1. 大图（3000×2000 PNG）按比例缩到 1568×1045、转 JPEG；小图（200×100 PNG）原样发，不放大
-//  2. Claude 认得出图里的数字和颜色；用户气泡显示「2 张图片」，缩略图发完清空
+//  2. Claude 认得出图里的数字和颜色；发完输入框的缩略图清空，用户气泡里是两张缩略图（图从服务端取）
+//     点开看大图，关掉不连带点开气泡；Claude 用 Read 读的图，工具条目点开也是缩略图
 //  3. 目录页开新会话：只贴一张图不打字，弹层里选 Haiku、接受编辑，新会话按选的启动
+import { join } from 'node:path'
 import type { Page } from 'playwright-core'
 import { api, check, run, shot, testDir, text, until } from './harness'
 
 const idle = (id: string) => until('这一轮结束', async () => (await api(`/sessions/${id}`)).state === 'idle', 120_000)
+/** 消息里各张缩略图的原图宽度，等都加载完 */
+const widths = (page: Page) =>
+  page.evaluate(() =>
+    Promise.all(
+      [...document.querySelectorAll<HTMLImageElement>('button[aria-label="看大图"] img')]
+        .filter((i) => !i.src.startsWith('blob:') && !i.src.startsWith('data:'))
+        .map((i) => i.decode().then(() => i.naturalWidth, () => 0)),
+    ),
+  )
 const thumbs = (page: Page, n: number) =>
   until(`${n} 张缩略图`, async () => ((await page.locator('[aria-label="去掉这张图片"]').count()) === n ? true : undefined), 10_000)
 
@@ -77,9 +88,29 @@ await run(
     check((await page.locator('[aria-label="去掉这张图片"]').count()) === 0, '发完缩略图清空')
     const all = await text()
     await shot('images-sent')
-    check(all.includes('［2 张图片］'), '用户气泡显示 2 张图片')
-    const reply = all.split('［2 张图片］')[1] ?? ''
+    check((await widths(page)).join() === '1568,200', '用户气泡里是两张缩略图，图从服务端取到了', await widths(page))
+    const reply = all.split('Answer like: 12, blue')[1] ?? ''
     check(reply.includes('73') && /red/i.test(reply), 'Claude 认出了数字和颜色', reply.slice(0, 300))
+
+    // ── 2. 点缩略图看大图；关掉时不连带点开气泡（露出「回退到这里」）──
+    await page.locator('button[aria-label="看大图"]').first().click()
+    const close = page.getByRole('button', { name: '关闭大图' })
+    await close.waitFor()
+    const big1 = await page.evaluate(() => (document.querySelector('.fixed.inset-0 img') as HTMLImageElement | null)?.naturalWidth)
+    check(big1 === 1568, '大图是原尺寸的那张', big1)
+    await shot('images-lightbox')
+    await close.click()
+    await close.waitFor({ state: 'detached' })
+    check(!(await text()).includes('回退到这里'), '关掉大图没点开气泡')
+
+    // Claude 用 Read 读的图：工具条目点开看到缩略图
+    await Bun.write(join(dir, 'red.png'), Buffer.from(small!, 'base64'))
+    await api(`/sessions/${s.id}/messages`, { text: 'Use the Read tool to read red.png in the current directory, then reply with just its color.' })
+    await idle(s.id)
+    await page.locator('button', { hasText: /Read .*red\.png/ }).click()
+    check((await widths(page)).at(-1) === 200, 'Read 的结果里是缩略图', await widths(page))
+    check(!(await text()).includes('[image]'), '不再写 [image]')
+    await shot('images-read')
 
     // ── 3. 目录页：只贴一张图，选 Haiku、接受编辑 ──
     await page.evaluate((d) => (location.hash = `#/dir?path=${encodeURIComponent(d)}`), dir)
@@ -88,7 +119,7 @@ await run(
     await thumbs(page, 1)
     const picker = page.getByRole('button', { name: '模型和权限模式' })
     await picker.click()
-    await page.locator('button', { hasText: 'Haiku 4.5' }).click()
+    await page.locator('button', { hasText: /Haiku \d/ }).click()
     await page.locator('[role="group"][aria-label="权限模式"] button', { hasText: '接受编辑' }).click()
     await page.getByRole('button', { name: '完成' }).click()
     check((await picker.textContent()) === 'Haiku · 接受编辑', '按钮上显示选了的', await picker.textContent())
@@ -103,7 +134,8 @@ await run(
     await idle(id)
     const info = await api(`/sessions/${id}`)
     check(/haiku/.test(info.model) && info.permissionMode === 'acceptEdits', '新会话用 Haiku、接受编辑', `${info.model} ${info.permissionMode}`)
-    const after = (await text()).split('［1 张图片］')[1] ?? ''
+    check((await widths(page)).join() === '200', '只有图的第一句也是缩略图', await widths(page))
+    const after = await text()
     await shot('dir-started')
     // 没打字时它可能用中文答
     check(/red|红/i.test(after), 'Claude 看到了图', after.slice(0, 300))

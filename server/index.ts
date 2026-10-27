@@ -28,6 +28,7 @@ import { CONFIG_DIR, CONFIG_FILE, expandHome, loadConfig, resolveRoots, waitForH
 import { Favorites } from './favorites'
 import { checkDir, dirEntry, gitBranch, within } from './fs'
 import { fsRoutes } from './fsRoutes'
+import { imageRoutes } from './images'
 import { listen } from './listen'
 import { LimitError, SessionManager } from './manager'
 import { pusher } from './push'
@@ -313,6 +314,7 @@ api.get('/sessions/:id/events', async (c) => {
   })
 })
 
+api.route('/sessions', imageRoutes(sessions))
 // 上滑加载更早的事件
 api.get('/sessions/:id/history', async (c) => {
   const s = await sessions.open(c.req.param('id'))

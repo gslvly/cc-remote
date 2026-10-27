@@ -2,6 +2,7 @@ import { createSignal, For, Show } from 'solid-js'
 import type { ImageAttachment } from '../../../shared/protocol'
 import { errorText } from '../format'
 import { type PickedImage, prepareImage } from '../image'
+import { Thumb } from './Lightbox'
 
 /** 待发的一张图片：还在压缩时 img 为空 */
 type Slot = { img?: PickedImage }
@@ -95,7 +96,7 @@ export function ImageStrip(props: { images: Images; class?: string }) {
             <Show when={slot.img} fallback={<div class="size-14 shrink-0 animate-pulse rounded-lg bg-neutral-800" />}>
               {(img) => (
                 <div class="relative size-14 shrink-0">
-                  <img src={img().url} alt="" class="size-14 rounded-lg object-cover" />
+                  <Thumb url={img().url} class="size-14" />
                   <button
                     onClick={() => props.images.remove([slot])}
                     aria-label="去掉这张图片"

@@ -132,4 +132,23 @@ describe('applyEvents', () => {
       { kind: 'note', text: 'Total cost: $0.1', mono: true },
     ])
   })
+
+  test('Read 读到的图记张数（按需去取），文字里不写 [image]；子代理的取不到，照旧写', () => {
+    const img = { type: 'image', omitted: true }
+    const result = (id: string, parent: string | null = null) => ({
+      type: 'user',
+      parent_tool_use_id: parent,
+      message: { content: [{ type: 'tool_result', tool_use_id: id, content: [img, img] }] },
+    })
+    const v = feed(
+      toolUse('r1', 'Read', { file_path: '/a.png' }),
+      result('r1'),
+      toolUse('a1', 'Agent', { prompt: 'x' }),
+      toolUse('r2', 'Read', { file_path: '/b.png' }, 'a1'),
+      result('r2', 'a1'),
+    )
+    expect(tool(v, 'r1')).toMatchObject({ images: 2, output: '', status: 'ok' })
+    expect(tool(v, 'r2')?.images).toBeUndefined()
+    expect(tool(v, 'r2')?.output).toBe('[image]\n[image]')
+  })
 })
