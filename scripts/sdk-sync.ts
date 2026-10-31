@@ -5,6 +5,7 @@ import { $ } from 'bun'
 import { cliVersion, installedSdk, sha256File } from '../server/claudeBin'
 import { expandHome, loadConfig } from '../server/config'
 import { pruneOld } from '../server/prune'
+import { fetchNpm } from '../server/sdk'
 
 const PKG = '@anthropic-ai/claude-agent-sdk'
 
@@ -38,11 +39,10 @@ if (before.checksums.includes(sum)) {
 const cli = await cliVersion(path)
 if (!cli) fail(`${path} --version 没给出版本号`)
 
-// 只匹配到一版时 npm 给的是对象，不是数组
-const found = await $`npm view ${`${PKG}@*`} version claudeCodeVersion --json`.nothrow().quiet()
-if (found.exitCode !== 0) fail(`npm view 失败：${found.stderr.toString().trim()}`)
-const list = [JSON.parse(found.stdout.toString())].flat() as { version: string; claudeCodeVersion?: string }[]
-const hit = list.find((v) => v.claudeCodeVersion === cli)
+// 不用 npm view：npm 11 的 @* 只给最新一版，全量范围里有没 claudeCodeVersion 的老版本时又只给版本号
+const npm = await fetchNpm()
+if (!npm) fail('查 npm 失败')
+const hit = npm.releases.find((r) => r.cli === cli)
 if (!hit) fail(`npm 上还没有配 claude ${cli} 的 SDK，服务端先用 SDK ${before.version} 自带的 ${before.cli}`)
 
 await $`bun add ${`${PKG}@${hit.version}`} --exact`

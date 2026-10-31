@@ -35,8 +35,8 @@ export interface Npm {
   releases: Release[]
 }
 
-/** 要发布时间，只能取完整的包信息（~1MB，缓存半小时） */
-async function fetchNpm(): Promise<Npm | undefined> {
+/** 要发布时间，只能取完整的包信息（~1MB，缓存半小时）。sdk-sync 也用它找配套的版本 */
+export async function fetchNpm(): Promise<Npm | undefined> {
   try {
     const res = await fetch(`https://registry.npmjs.org/${PKG}`, { signal: AbortSignal.timeout(15_000) })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -147,13 +147,8 @@ export function sdkRoutes(busy: () => boolean, restart: () => void, deps: Partia
   let starting = false
   const working = () => starting || job?.state === 'running' || job?.state === 'restarting'
 
-  async function upgrade(j: SdkJob) {
-    const { target } = j
-    const step = (s: string) => {
-      j.step = s
-      console.log(`[sdk] ${s}`)
-    }
-
+  /** 装一版：SDK（类型检查没过就装回去再抛错），再把本机 claude 换成配套的（没换成只记下） */
+  async function installOne(target: SdkVersion, step: (s: string) => void, note: (s: string) => void) {
     const before = d.installed()
     if (before !== target.version) {
       step(`装 SDK ${target.version}`)
@@ -171,15 +166,46 @@ export function sdkRoutes(busy: () => boolean, restart: () => void, deps: Partia
 
     const local = await d.local()
     if (local && !d.paired()) {
-      if (local.version === target.cli) j.notes.push(`本机 claude 也是 ${target.cli}，但与 SDK 配套的不是同一个文件（不是原生安装？），子进程先用 SDK 自带的`)
-      else if (!older(local, target.cli)) j.notes.push(`本机 claude ${local.version} 比 SDK 配套的 ${target.cli} 新，不降级；子进程先用 SDK 自带的`)
+      if (local.version === target.cli) note(`本机 claude 也是 ${target.cli}，但与 SDK 配套的不是同一个文件（不是原生安装？），子进程先用 SDK 自带的`)
+      else if (!older(local, target.cli)) note(`本机 claude ${local.version} 比 SDK 配套的 ${target.cli} 新，不降级；子进程先用 SDK 自带的`)
       else {
         step(`本机 claude 换成 ${target.cli}`)
         const failed = await d.installClaude(target.cli)
-        if (failed) j.notes.push(`本机 claude 没换成 ${target.cli}，子进程先用 SDK 自带的：\n${failed}`)
-        else if (!d.paired()) j.notes.push(`装了 claude ${target.cli}，但 ${local.path} 与 SDK 配套的不是同一个文件（不是原生安装？），子进程先用 SDK 自带的`)
+        if (failed) note(`本机 claude 没换成 ${target.cli}，子进程先用 SDK 自带的：\n${failed}`)
+        else if (!d.paired()) note(`装了 claude ${target.cli}，但 ${local.path} 与 SDK 配套的不是同一个文件（不是原生安装？），子进程先用 SDK 自带的`)
       }
     }
+  }
+
+  async function upgrade(j: SdkJob) {
+    const step = (s: string) => {
+      j.step = s
+      console.log(`[sdk] ${s}`)
+    }
+    // 也打到日志里：页面上的 job 重启后就没了
+    const note = (s: string) => {
+      j.notes.push(s)
+      console.warn(`[sdk] ${s}`)
+    }
+
+    // 网慢时装一版要一个多小时，装完 npm 上又出了新版就接着装，装到最新再重启
+    for (let prev: SdkVersion | undefined; ; ) {
+      try {
+        await installOne(j.target, step, note)
+      } catch (e) {
+        // 后面几轮没装上、已经装回前一版的，就用前一版
+        if (!prev || d.installed() !== prev.version) throw e
+        note(`${e instanceof Error ? e.message : e}\n先用 SDK ${prev.version}`)
+        j.target = prev
+        break
+      }
+      const latest = (await npm(true))?.latest
+      if (!latest || Bun.semver.order(latest.version, j.target.version) <= 0) break
+      note(`装的时候 npm 上又出了 SDK ${latest.version}，接着装`)
+      prev = j.target
+      j.target = latest
+    }
+    const { target } = j
 
     // 删不掉不影响升级，记下来
     step('删旧版')

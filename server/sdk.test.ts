@@ -5,7 +5,7 @@ import { BUSY, type Npm, type Release, type SdkDeps, sdkRoutes, urgent } from '.
 const DAY = 86_400_000
 const LATEST = { version: '0.3.304', cli: '2.1.304' }
 /** SDK 版本 → 配套的 claude */
-const PAIR: Record<string, string> = { '0.3.296': '2.1.296', '0.3.304': '2.1.304' }
+const PAIR: Record<string, string> = { '0.3.296': '2.1.296', '0.3.304': '2.1.304', '0.3.305': '2.1.305', '0.3.306': '2.1.306' }
 
 interface Opts {
   busy?: boolean
@@ -14,6 +14,8 @@ interface Opts {
   broken?: string[]
   installed?: string
   latest?: typeof LATEST
+  /** 升级时 npm 上陆续出的新版：每装一版 SDK 就多发一个 */
+  later?: (typeof LATEST)[]
   /** npm 上发过的；默认只有 latest，昨天发的 */
   releases?: Release[]
   /** 本机 claude 的版本；null 是没有本机的 */
@@ -31,10 +33,11 @@ function setup(o: Opts = {}) {
   const pruned: string[] = []
   let lookups = 0
   let restarts = 0
+  let sdkInstalls = 0
   const deps: Partial<SdkDeps> = {
     npm: async () => {
       lookups++
-      const latest = 'latest' in o ? o.latest : LATEST
+      const latest = o.later?.[Math.min(sdkInstalls, o.later.length) - 1] ?? ('latest' in o ? o.latest : LATEST)
       return latest && { latest, releases: o.releases ?? [{ ...latest, time: Date.now() - DAY }] }
     },
     installed: () => installed,
@@ -43,6 +46,7 @@ function setup(o: Opts = {}) {
     paired: () => claude === PAIR[installed],
     install: async (v) => {
       calls.push(`sdk ${v}`)
+      sdkInstalls++
       installed = v
     },
     typecheck: async () => (o.broken?.includes(installed) ? 'TS2345 类型不对' : undefined),
@@ -161,11 +165,37 @@ describe('sdkRoutes', () => {
     expect(await t.restarts()).toBe(0)
   })
 
-  test('升级时现查 npm，不用缓存', async () => {
+  test('升级时现查 npm，不用缓存；装完再查一次有没有更新的', async () => {
     const t = setup()
     await t.status()
     await t.upgrade()
-    expect(t.lookups()).toBe(2)
+    expect(t.lookups()).toBe(3)
+  })
+
+  test('装的时候 npm 上又出了新版就接着装，装到最新再重启', async () => {
+    const later = [
+      { version: '0.3.305', cli: '2.1.305' },
+      { version: '0.3.306', cli: '2.1.306' },
+    ]
+    const t = setup({ later })
+    const { job } = await t.upgrade()
+    expect(job).toMatchObject({ target: later[1], state: 'restarting' })
+    expect(job?.notes).toEqual(['装的时候 npm 上又出了 SDK 0.3.305，接着装', '装的时候 npm 上又出了 SDK 0.3.306，接着装'])
+    expect(t.calls).toEqual(['sdk 0.3.304', 'claude 2.1.304', 'sdk 0.3.305', 'claude 2.1.305', 'sdk 0.3.306', 'claude 2.1.306'])
+    expect(t.pruned).toEqual(['0.3.306'])
+    expect(await t.restarts()).toBe(1)
+  })
+
+  test('接着装的那版类型检查没过：装回前一版，照样重启', async () => {
+    const t = setup({ later: [{ version: '0.3.305', cli: '2.1.305' }], broken: ['0.3.305'] })
+    const { job } = await t.upgrade()
+    expect(job).toMatchObject({ target: LATEST, state: 'restarting' })
+    expect(job?.notes.at(-1)).toContain('已装回 0.3.304')
+    expect(job?.notes.at(-1)).toContain('先用 SDK 0.3.304')
+    expect(t.calls).toEqual(['sdk 0.3.304', 'claude 2.1.304', 'sdk 0.3.305', 'sdk 0.3.304'])
+    expect(t.installed()).toBe('0.3.304')
+    expect(t.pruned).toEqual(['0.3.304'])
+    expect(await t.restarts()).toBe(1)
   })
 
   test('有托管会话在跑就不动', async () => {
