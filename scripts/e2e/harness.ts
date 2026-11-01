@@ -14,7 +14,11 @@ import { PARENT_SESSION_ENV } from '../../server/child'
 
 const REPO = join(import.meta.dir, '../..')
 /** 8686 留给平时用的那个服务端 */
-export const PORT = 8687
+/**
+ * 测试服务端的端口，起之前会杀掉占着它的进程：别用 8686（平时在用的服务端）、8687（nginx 解 TLS 后转给 8686 的入口）。
+ * 被别的程序占着时用 CCR_E2E_PORT 换一个
+ */
+export const PORT = Number(process.env.CCR_E2E_PORT) || 8697
 export const BASE = `http://127.0.0.1:${PORT}`
 /** 测试目录都建在这下面：要在 roots 内（默认 ~），/tmp 不在 */
 const ROOT = join(homedir(), 'ccr-e2e')

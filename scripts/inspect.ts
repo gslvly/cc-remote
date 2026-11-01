@@ -1,5 +1,5 @@
 // 看一个会话：transcript 按服务端的转换一条一行，加上终端登记表里的状态；--port 再列出那个服务端缓冲里的
-//   bun scripts/inspect.ts <id 或前缀> [--port 8687] [--all]
+//   bun scripts/inspect.ts <id 或前缀> [--port 8697] [--all]
 import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { getSessionInfo } from '@anthropic-ai/claude-agent-sdk'
@@ -13,7 +13,7 @@ const [prefix, ...rest] = process.argv.slice(2)
 const port = rest.includes('--port') ? rest[rest.indexOf('--port') + 1] : undefined
 const all = rest.includes('--all')
 if (!prefix) {
-  console.error('用法：bun scripts/inspect.ts <id 或前缀> [--port 8687] [--all]')
+  console.error('用法：bun scripts/inspect.ts <id 或前缀> [--port 8697] [--all]')
   process.exit(1)
 }
 

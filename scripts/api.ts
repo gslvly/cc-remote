@@ -1,5 +1,5 @@
 // 带鉴权调服务端接口：token 取自 ~/.cc-remote/config.json（和登录页输入的是同一个），不用手动带
-//   bun scripts/api.ts <路径> [-q k=v]… [-d JSON|@文件] [--port 8687] [--full] [--write]
+//   bun scripts/api.ts <路径> [-q k=v]… [-d JSON|@文件] [--port 8697] [--full] [--write]
 //   bun scripts/api.ts /sessions/<id>/events [--wait 秒]   听内容流，一条一行
 //   bun scripts/api.ts --list [关键字]                      列出接口
 // 带 -d 就是 POST。平时在用的端口（默认 8686）只放 GET，要写得加 --write
@@ -36,7 +36,7 @@ if (o.list) {
     if (!arg || route!.includes(arg)) console.log(`${method!.toUpperCase().padEnd(5)}/api${route}`)
   process.exit(0)
 }
-if (!arg?.startsWith('/')) die('用法：bun scripts/api.ts <路径，如 /sessions> [-q k=v] [-d JSON|@文件] [--port 8687] [--full] [--write] | --list [关键字]')
+if (!arg?.startsWith('/')) die('用法：bun scripts/api.ts <路径，如 /sessions> [-q k=v] [-d JSON|@文件] [--port 8697] [--full] [--write] | --list [关键字]')
 
 let body: string | undefined
 if (o.data !== undefined) {
