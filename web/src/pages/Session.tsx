@@ -1,4 +1,5 @@
 import { createEffect, createSignal, For, onSettled, Show, untrack } from 'solid-js'
+import { CompactSheet } from '../components/CompactSheet'
 import { Composer } from '../components/Composer'
 import { ItemView, LiveView } from '../components/ItemView'
 import { ImageBase } from '../components/Lightbox'
@@ -6,8 +7,8 @@ import { ModelSheet } from '../components/ModelSheet'
 import { PermissionSheet, type SheetProps } from '../components/PermissionSheet'
 import { PlanSheet } from '../components/PlanSheet'
 import { QuestionSheet } from '../components/QuestionSheet'
-import { RewindSheet } from '../components/RewindSheet'
 import { QueuedBox } from '../components/QueuedBox'
+import { RewindSheet } from '../components/RewindSheet'
 import { StateBadge } from '../components/StateBadge'
 import { StatusLine } from '../components/StatusLine'
 import { ApprovalBanner, TabBar } from '../components/TabBar'
@@ -18,7 +19,7 @@ import { afterPaint } from '../frame'
 import { useOverview, useQuota } from '../overview'
 import { go } from '../router'
 import { openSession } from '../session/store'
-import { modelLabel } from '../status'
+import { ctxParts, fmtSize, modelLabel } from '../status'
 import { TODO_TOOLS, type UserItem } from '../session/view'
 import { fitViewport } from '../viewport'
 
@@ -50,6 +51,8 @@ export function SessionPage(props: { id: string }) {
   /** 要回退到哪条之前（弹层开着）；回退完把它的原文放回输入框 */
   const [rewinding, setRewinding] = createSignal<UserItem>()
   const [fill, setFill] = createSignal<{ text: string }>()
+  /** 压缩的弹层开着（点状态栏的「上下文」） */
+  const [compactOpen, setCompactOpen] = createSignal(false)
   /** 空闲、终端没占着才能回退 */
   const rewindable = () => {
     const i = s.info()
@@ -205,7 +208,7 @@ export function SessionPage(props: { id: string }) {
             </div>
           }
         >
-          {(i) => <StatusLine info={i()} quota={quota()} />}
+          {(i) => <StatusLine info={i()} quota={quota()} onContext={i().terminal ? undefined : () => setCompactOpen(true)} />}
         </Show>
         <ApprovalBanner current={props.id} sessions={all} />
         <TodoBar todos={view.todos} />
@@ -246,10 +249,10 @@ export function SessionPage(props: { id: string }) {
           </Show>
         </div>
 
+        <Show when={s.info()?.queued}>{(q) => <QueuedBox queued={q()} onSendNow={s.actions.sendNow} />}</Show>
         {/* 终端还占着的会话没有输入框，只读；终端放手后就是历史会话，输入框出现 */}
         <Show
           when={s.info()?.terminal}
-        <Show when={s.info()?.queued}>{(q) => <QueuedBox queued={q()} onSendNow={s.actions.sendNow} />}</Show>
           fallback={
             <Composer
               state={s.info()?.state ?? 'starting'}
@@ -287,6 +290,25 @@ export function SessionPage(props: { id: string }) {
               onClose={() => setPicking(false)}
             />
           )}
+        </Show>
+
+        <Show when={compactOpen() && s.info()}>
+          {(i) => {
+            const ctx = () => ctxParts(i().usage, i().contextWindow)
+            return (
+              <CompactSheet
+                usage={`${ctx().pct ?? '--'}% · ${ctx().k}k${i().contextWindow ? ` / ${fmtSize(i().contextWindow!)}` : ''}`}
+                busy={i().state === 'starting' || i().state === 'running' || i().state === 'requires_action'}
+                compacting={view.compacting}
+                onCompact={async (t) => {
+                  stick = true
+                  await s.actions.send(t ? `/compact ${t}` : '/compact', [])
+                  setCompactOpen(false)
+                }}
+                onClose={() => setCompactOpen(false)}
+              />
+            )
+          }}
         </Show>
 
         <Show when={rewinding()} keyed>

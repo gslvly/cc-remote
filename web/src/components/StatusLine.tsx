@@ -10,16 +10,28 @@ import { cacheParts, ctxParts, quotaParts } from '../status'
 const WARN = 'text-amber-400'
 const BAD = 'text-red-400'
 
-function Metric(props: { label: string; value: string; tone?: string; sub?: string; subTone?: string }) {
-  return (
-    <div class="flex min-w-0 flex-col whitespace-nowrap">
+function Metric(props: { label: string; value: string; tone?: string; sub?: string; subTone?: string; onClick?: () => void }) {
+  const body = () => (
+    <>
       <span>
-        <span class="text-neutral-500">{props.label} </span>
+        {/* 能点的标签带虚下划线（同页头的模型） */}
+        <span class={`text-neutral-500 ${props.onClick ? 'underline decoration-neutral-700 decoration-dotted underline-offset-2' : ''}`}>
+          {props.label}
+        </span>{' '}
         <span class={props.tone || 'text-neutral-300'}>{props.value}</span>
       </span>
       {/* 没有 k 数、倒计时时也占住一行（普通空格会塌成 0 高），状态栏高度不随数据到没到变 */}
       <span class={`text-[10px] leading-3 ${props.subTone || 'text-neutral-500'}`}>{props.sub ?? ' '}</span>
-    </div>
+    </>
+  )
+  return (
+    <Show when={props.onClick} fallback={<div class="flex min-w-0 flex-col whitespace-nowrap">{body()}</div>}>
+      {(click) => (
+        <button onClick={() => click()()} class="flex min-w-0 flex-col items-start whitespace-nowrap text-left">
+          {body()}
+        </button>
+      )}
+    </Show>
   )
 }
 
@@ -41,17 +53,19 @@ export function QuotaText(props: { quota: Quota | null }) {
   )
 }
 
-export function StatusLine(props: { info: SessionInfo; quota: Quota | null }) {
+/** onContext：点「上下文」那格（弹出压缩）；不给就不能点（终端会话只读） */
+export function StatusLine(props: { info: SessionInfo; quota: Quota | null; onContext?: () => void }) {
   const ctx = () => ctxParts(props.info.usage, props.info.contextWindow)
   const cache = () => cacheParts(props.info.usage, now())
   return (
     <div aria-label="状态栏" class="grid grid-cols-4 gap-x-2 border-b border-neutral-800 px-4 py-1 text-[11px] tabular-nums">
-      <Show when={props.info.usage} fallback={<Metric label="上下文" value="--" />}>
+      <Show when={props.info.usage} fallback={<Metric label="上下文" value="--" onClick={props.onContext} />}>
         <Metric
           label="上下文"
           value={`${ctx().pct ?? '--'}%`}
           tone={(ctx().pct ?? 0) >= 90 ? BAD : (ctx().pct ?? 0) >= 70 ? WARN : ''}
           sub={`${ctx().k}k`}
+          onClick={props.onContext}
         />
       </Show>
       <Show when={cache()} fallback={<Metric label="缓存" value="--" />}>
