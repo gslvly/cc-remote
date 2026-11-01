@@ -15,6 +15,7 @@ import type {
   SessionInfo,
   SetModeBody,
   SendMessageBody,
+  SendNowBody,
   SetModelBody,
   StreamHello,
   SwitchableMode,
@@ -51,6 +52,8 @@ export interface SessionStore {
     bash(command: string): Promise<unknown>
     decide(reqId: string, d: PermissionDecisionBody): Promise<unknown>
     interrupt(): Promise<unknown>
+    /** 排着的这条立即发送：还排着就中断这一轮，它接着发出 */
+    sendNow(uuid: string): Promise<unknown>
     /** 切权限模式 */
     setMode(mode: SwitchableMode): Promise<unknown>
     /** 切模型、effort */
@@ -182,6 +185,7 @@ function createEntry(id: string): SessionStore {
     bash: (command: string) => api(`/sessions/${id}/bash`, { command } satisfies BashBody),
     decide: (reqId: string, d: PermissionDecisionBody) => api(`/sessions/${id}/permissions/${reqId}`, d),
     interrupt: () => api(`/sessions/${id}/interrupt`, {}),
+    sendNow: (uuid: string) => api(`/sessions/${id}/send-now`, { uuid } satisfies SendNowBody),
     setMode: (mode: SwitchableMode) => api<SessionInfo>(`/sessions/${id}/mode`, { mode } satisfies SetModeBody).then(setInfo),
     setModel: (b: SetModelBody) => api<SessionInfo>(`/sessions/${id}/model`, b).then(setInfo),
     close: () => api(`/sessions/${id}/close`, {}),

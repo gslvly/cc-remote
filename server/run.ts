@@ -2,7 +2,7 @@
 // 子进程停了（回收、崩溃）这些就都没了；事件缓冲、模型和权限模式在 Session 里，经 RunHost 交过去
 import { type PermissionMode, query, type Query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { UUID } from 'node:crypto'
-import type { ImageAttachment, LiveUpdate, SessionEvent, SessionState } from '../shared/protocol'
+import type { ImageAttachment, LiveUpdate, QueuedInput, SessionEvent, SessionState } from '../shared/protocol'
 import { learnCatalog, updateCommands } from './catalog'
 import { InputQueue, type SpawnArgs, spawnOptions } from './child'
 import { LiveTracker } from './live'
@@ -38,6 +38,8 @@ export class Run {
   private turnRunning = false
   /** append 了、还没收到 result 的 */
   private appended = new Set<string>()
+  /** 这一轮跑着时发的、CLI 还排着没收进去的。收进去才进缓冲 */
+  private waiting = new Map<string, QueuedInput>()
   /** 停掉了：之后它发来的消息、它的退出都不再理会 */
   private closed = false
   /** 正在生成的那一块，不进缓冲 */
@@ -73,8 +75,22 @@ export class Run {
     return this.started ? 'running' : 'starting'
   }
 
-  /** 一轮输入。指定 uuid：transcript 里这条消息就用它，与 transcript 对齐时认得出来 */
+  get queued(): QueuedInput[] | undefined {
+    return this.waiting.size ? [...this.waiting.values()] : undefined
+  }
+
+  waits(uuid: string) {
+    return this.waiting.has(uuid)
+  }
+
+  /**
+   * 一轮输入。指定 uuid：transcript 里这条消息就用它，与 transcript 对齐时认得出来。
+   * 空闲时马上进缓冲；这一轮还在跑，CLI 会先排着（等这批工具结果回来插进去，或等这一轮结束），收进去时再进缓冲
+   */
   send(text: string, uuid: UUID, images: ImageAttachment[] = []) {
+    const input: QueuedInput = { uuid, text, ...(images.length && { images: images.length }) }
+    if (this.turnRunning) this.waiting.set(uuid, input)
+    else this.host.push({ type: 'user_input', ...input })
     // 图片在前、文字在后（终端贴图也是这样）；API 不收空的 text block
     const content = images.length
       ? [
@@ -121,6 +137,9 @@ export class Run {
     this.turnRunning = false
     this.streaming.clear()
     this.approvals.cancelAll({ behavior: 'deny', message: 'Session ended.' })
+    // 还排着的跟着子进程没了
+    for (const { text } of this.waiting.values()) this.host.push({ type: 'error', message: `没发出去：${text}` })
+    this.waiting.clear()
     this.input.close()
     this.q.close()
   }
@@ -145,6 +164,12 @@ export class Run {
     }
     if (msg.type === 'system' && msg.subtype === 'thinking_tokens') {
       this.streaming.onThinkingTokens(msg.estimated_tokens)
+      return
+    }
+    // CLI 报的每条输入的去向（queued → started → completed，或 cancelled），SDK 的类型里还没有。started 就是收进去了
+    if ((msg.type as string) === 'command_lifecycle') {
+      const { command_uuid, state } = msg as unknown as { command_uuid: string; state: string }
+      if (state !== 'queued') this.settle(command_uuid, state !== 'cancelled')
       return
     }
     // 额度是全账号的，另外记一份（概览流推给首页、各会话的状态栏）
@@ -176,12 +201,23 @@ export class Run {
         this.turnRunning = false
         stateChanged = true
         pusher.done(host, msg)
+        // CLI 那边没有排着的了：还记着的都已收进去（没报 started 的老 CLI）
+        for (const uuid of this.waiting.keys()) this.settle(uuid, true)
       }
     }
     // 这一块生成完了（中断时是半截的），由完整消息替换快照
     if ((msg.type === 'assistant' && !msg.parent_tool_use_id) || msg.type === 'result') this.streaming.settle()
     host.push({ type: 'sdk', msg: slim(msg) })
     if (stateChanged) host.emitState()
+  }
+
+  /** 排着的这条有了去向：收进去了就进缓冲，取消了就报没发出去 */
+  private settle(uuid: string, taken: boolean) {
+    const input = this.waiting.get(uuid)
+    if (!input) return
+    this.waiting.delete(uuid)
+    this.host.push(taken ? { type: 'user_input', ...input } : { type: 'error', message: `没发出去：${input.text}` })
+    this.host.emitState()
   }
 
   /** 这个 result 只是 append 的回执。和真消息并成一轮的（排在它后面马上发了）不算 */

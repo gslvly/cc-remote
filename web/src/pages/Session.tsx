@@ -7,6 +7,7 @@ import { PermissionSheet, type SheetProps } from '../components/PermissionSheet'
 import { PlanSheet } from '../components/PlanSheet'
 import { QuestionSheet } from '../components/QuestionSheet'
 import { RewindSheet } from '../components/RewindSheet'
+import { QueuedBox } from '../components/QueuedBox'
 import { StateBadge } from '../components/StateBadge'
 import { StatusLine } from '../components/StatusLine'
 import { ApprovalBanner, TabBar } from '../components/TabBar'
@@ -248,6 +249,7 @@ export function SessionPage(props: { id: string }) {
         {/* 终端还占着的会话没有输入框，只读；终端放手后就是历史会话，输入框出现 */}
         <Show
           when={s.info()?.terminal}
+        <Show when={s.info()?.queued}>{(q) => <QueuedBox queued={q()} onSendNow={s.actions.sendNow} />}</Show>
           fallback={
             <Composer
               state={s.info()?.state ?? 'starting'}

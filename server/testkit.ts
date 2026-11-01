@@ -48,7 +48,7 @@ export class Transcript {
   }
 }
 
-/** 每起一个假子进程记一条：启动参数（canUseTool 从这里拿来直接调），setPermissionMode、setModel、applyFlagSettings、rewindFiles 收到的 */
+/** 每起一个假子进程记一条：启动参数（canUseTool 从这里拿来直接调），setPermissionMode、setModel、applyFlagSettings、rewindFiles 收到的，中断了几次 */
 export const spawned: {
   id: string
   options: sdk.Options
@@ -56,6 +56,7 @@ export const spawned: {
   models: (string | undefined)[]
   flags: unknown[]
   rewinds: string[]
+  interrupts: number
 }[] = []
 
 /** 这些用户消息没留文件快照：rewindFiles 预览报 canRewind: false，真还原报错（同真 CLI） */
@@ -73,17 +74,50 @@ const MODELS: sdk.ModelInfo[] = [
   { value: 'haiku', resolvedModel: 'claude-haiku-4-5', displayName: 'Haiku', description: 'Haiku 4.5' },
 ]
 
-/** 假子进程：每收到一条，写进 transcript（用消息自带的 uuid），回一句 re: …（shouldQuery: false 的只回 0 轮的 result）。带 resumeSessionAt 的从那条接着写 */
+/** slow 开头的消息，这一轮停在半路（模拟正在跑），release() 或中断后接着回。先放行的也算，留给下一个 slow */
+let permits = 0
+let wakeSlow = () => {}
+export function release() {
+  permits++
+  wakeSlow()
+}
+async function slowPass() {
+  while (!permits) await new Promise<void>((r) => (wakeSlow = r))
+  permits--
+}
+
+/**
+ * 假子进程：每收到一条，写进 transcript（用消息自带的 uuid），回一句 re: …（shouldQuery: false 的只回 0 轮的 result）。带 resumeSessionAt 的从那条接着写。
+ * 同真 CLI：一轮跑着时收到的先排着，轮到它时报 command_lifecycle started，result 里带还排着几条
+ */
 function fakeQuery({ prompt, options }: { prompt: AsyncIterable<sdk.SDKUserMessage>; options: sdk.Options }) {
   const id = (options.sessionId ?? options.resume)!
-  const rec = { id, options, modes: [] as sdk.PermissionMode[], models: [] as (string | undefined)[], flags: [] as unknown[], rewinds: [] as string[] }
+  const rec = { id, options, modes: [] as sdk.PermissionMode[], models: [] as (string | undefined)[], flags: [] as unknown[], rewinds: [] as string[], interrupts: 0 }
   spawned.push(rec)
   const t = transcripts.get(id) ?? new Transcript(id)
   if (options.resumeSessionAt) t.last = options.resumeSessionAt
-  async function* gen() {
+  const inbox: sdk.SDKUserMessage[] = []
+  let ended = false
+  let wake = () => {}
+  void (async () => {
     for await (const m of prompt) {
+      inbox.push(m)
+      wake()
+    }
+    ended = true
+    wake()
+  })()
+  async function* gen() {
+    while (true) {
+      const m = inbox.shift()
+      if (!m) {
+        if (ended) return
+        await new Promise<void>((r) => (wake = r))
+        continue
+      }
       const { content } = m.message
       t.add('user', content, { uuid: m.uuid })
+      yield { type: 'command_lifecycle', command_uuid: m.uuid, state: 'started', uuid: crypto.randomUUID(), session_id: id }
       yield { type: 'system', subtype: 'init', model: 'haiku', permissionMode: 'default', session_id: id, uuid: crypto.randomUUID() }
       // 只写进对话的（! 命令）：不开始这一轮，同真 CLI 回一个 0 轮的 result
       if (m.shouldQuery === false) {
@@ -94,13 +128,17 @@ function fakeQuery({ prompt, options }: { prompt: AsyncIterable<sdk.SDKUserMessa
       const said = typeof content === 'string' ? content : content.map((b) => (b.type === 'text' ? b.text : '')).join('')
       const images = typeof content === 'string' ? 0 : content.filter((b) => b.type === 'image').length
       const text = `re: ${said}${images ? `（${images} 张图）` : ''}`
+      if (said.startsWith('slow')) await slowPass()
       const uuid = t.reply(text)
       yield { type: 'assistant', uuid, session_id: id, parent_tool_use_id: null, message: { role: 'assistant', content: [{ type: 'text', text }] } }
-      yield { type: 'result', subtype: 'success', is_error: false, result: text, session_id: id, uuid: crypto.randomUUID(), modelUsage: { haiku: { contextWindow: 200_000 } } }
+      yield { type: 'result', subtype: 'success', is_error: false, result: text, session_id: id, uuid: crypto.randomUUID(), modelUsage: { haiku: { contextWindow: 200_000 } }, queued_turn_count: inbox.length }
     }
   }
   return Object.assign(gen(), {
-    interrupt: async () => {},
+    interrupt: async () => {
+      rec.interrupts++
+      release()
+    },
     close: () => {},
     setPermissionMode: async (m: sdk.PermissionMode) => void rec.modes.push(m),
     getContextUsage: async () => ({ rawMaxTokens: 200_000, model: 'haiku' }),

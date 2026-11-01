@@ -39,6 +39,18 @@ export interface SessionInfo {
   effort?: string
   /** 状态栏的 ctx、cache：主链最近一次 API 调用的用量 */
   usage?: LastUsage
+  /**
+   * 发了、Claude 还没收进去的（这一轮正在跑：等工具这批结果回来插进去，或等这一轮结束）。
+   * 收进去时才进事件缓冲（user_input），所以在对话流里的位置就是 Claude 看到它的地方
+   */
+  queued?: QueuedInput[]
+}
+
+export interface QueuedInput {
+  uuid: string
+  text: string
+  /** 带了几张图片 */
+  images?: number
 }
 
 /** 主链最近一次 API 调用的输入侧用量（statusline 的 current_usage） */
@@ -260,6 +272,11 @@ export interface ImageAttachment {
 export interface SendMessageBody {
   text: string
   images?: ImageAttachment[]
+}
+
+/** POST /api/sessions/:id/send-now：这条还在排队就中断这一轮，它接着作为新的一轮发出；已经被采纳了就什么都不做 */
+export interface SendNowBody {
+  uuid: string
 }
 
 /**

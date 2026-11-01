@@ -148,6 +148,7 @@ export class Session implements RunHost {
       contextWindow: facts?.window,
       effort: this.effortChoice ?? facts?.effort ?? undefined,
       usage: this.usage.last,
+      queued: this.run?.queued,
     }
   }
 
@@ -262,7 +263,6 @@ export class Session implements RunHost {
     this.resumeAt = undefined
     this.owned = true
     const uuid = crypto.randomUUID()
-    this.push({ type: 'user_input', text, uuid, ...(images.length && { images: images.length }) })
     rememberSent(uuid, images)
     run.send(text, uuid, images)
     // 第一句只有图：这是第一句带字的（斜杠命令不算，同 titleOf），就用它
@@ -334,6 +334,11 @@ export class Session implements RunHost {
   async interrupt() {
     if (this.shell) return this.shell.abort()
     await this.run?.interrupt()
+  }
+
+  /** 立即发送：这条还排着就中断这一轮，排着的不会丢，CLI 接着把它作为新的一轮发出。已经收进去了就不打断 */
+  async sendNow(uuid: string) {
+    if (this.run?.waits(uuid)) await this.run.interrupt()
   }
 
   /**
