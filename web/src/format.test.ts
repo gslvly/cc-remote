@@ -1,6 +1,6 @@
 // 路径显示：服务端可能跑在 macOS、Linux 或 Windows 上
 import { describe, expect, test } from 'bun:test'
-import { basename, crumbs, shortPath } from './format'
+import { basename, crumbs, dirCrumbs, shortPath } from './format'
 
 describe('路径显示', () => {
   test('basename', () => {
@@ -38,5 +38,28 @@ describe('路径显示', () => {
     ])
     // 前缀相同的兄弟目录不算在 root 里
     expect(labels(['C:\\Users\\gs'], 'C:\\Users\\gs2')).toEqual([['C:\\Users\\gs2', 'C:\\Users\\gs2']])
+  })
+
+  test('目录页文件的面包屑：从这个目录起', () => {
+    const labels = (root: string, path: string) => dirCrumbs(root, path).map((c) => [c.label, c.path])
+    expect(labels('/Users/gs/app', '/Users/gs/app')).toEqual([['app', '/Users/gs/app']])
+    expect(labels('/Users/gs/app', '/Users/gs/app/web/src')).toEqual([
+      ['app', '/Users/gs/app'],
+      ['web', '/Users/gs/app/web'],
+      ['src', '/Users/gs/app/web/src'],
+    ])
+    expect(labels('D:\\app', 'D:\\app\\web')).toEqual([
+      ['app', 'D:\\app'],
+      ['web', 'D:\\app\\web'],
+    ])
+    // 符号链接进到外面了、前缀相同的兄弟目录
+    expect(labels('/Users/gs/app', '/opt/lib')).toEqual([
+      ['app', '/Users/gs/app'],
+      ['lib', '/opt/lib'],
+    ])
+    expect(labels('/Users/gs/app', '/Users/gs/app2')).toEqual([
+      ['app', '/Users/gs/app'],
+      ['app2', '/Users/gs/app2'],
+    ])
   })
 })

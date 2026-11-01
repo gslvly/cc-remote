@@ -11,6 +11,7 @@ import {
   refresh,
   Show,
   untrack,
+  type Element,
 } from 'solid-js'
 import type {
   CreateSessionBody,
@@ -24,6 +25,7 @@ import type {
 } from '../../../shared/protocol'
 import { api, ApiError, cachedGet } from '../api'
 import { CommandMenu, slashQuery } from '../components/CommandMenu'
+import { DirFiles } from '../components/DirFiles'
 import { attachments, createImages, ImageButton, ImageStrip } from '../components/Images'
 import { ModelSheet } from '../components/ModelSheet'
 import { loadDraft, saveDraft } from '../draft'
@@ -35,7 +37,11 @@ import { go } from '../router'
 import { removeSession } from '../session/store'
 import { modelName } from '../status'
 
-/** 目录页：在这个目录开新会话，或者打开它的历史会话（终端里开的也在） */
+/** 下面那块看历史会话还是文件，下次进目录页接着用 */
+type Tab = 'sessions' | 'files'
+const TAB_KEY = 'ccr-dir-tab'
+
+/** 目录页：在这个目录开新会话，或者打开它的历史会话（终端里开的也在）、看它里面的文件 */
 export function DirPage(props: { path: string }) {
   // 目录不存在、不在 roots 内时这里就报错，不用等到点开始
   // 换目录时整页重建（App 里 keyed），path 只取一次
@@ -56,6 +62,12 @@ export function DirPage(props: { path: string }) {
   const [error, setError] = createSignal('')
   const [busy, setBusy] = createSignal(false)
   const images = createImages(setError)
+  const [tab, setTabRaw] = createSignal<Tab>(localStorage.getItem(TAB_KEY) === 'files' ? 'files' : 'sessions')
+  const setTab = (t: Tab) => {
+    setTabRaw(t)
+    localStorage.setItem(TAB_KEY, t)
+  }
+  const tabs = () => <Tabs tab={tab()} onTab={setTab} />
   let input!: HTMLTextAreaElement
 
   // focus 会带出滚动，等整页画出来再做，见 afterPaint
@@ -168,7 +180,9 @@ export function DirPage(props: { path: string }) {
         <Loading fallback={startRow(() => true)}>
           {/* isPending 顺带读了 info：没取到时 Loading 等它 */}
           {startRow(() => isPending(() => info()) || (!prompt().trim() && !images.list().length) || images.pending() || busy())}
-          <History path={props.path} branch={info().branch} />
+          <Show when={tab() === 'files'} fallback={<History path={props.path} branch={info().branch} tabs={tabs()} />}>
+            <DirFiles root={info().path} tabs={tabs()} />
+          </Show>
         </Loading>
       </Errored>
       <Show when={picking()}>
@@ -217,11 +231,31 @@ function DirHeader(props: { path: string; branch?: string; favorite?: boolean; o
   )
 }
 
+/** 历史会话 / 文件的切换，放在下面那块的标题行左边 */
+function Tabs(props: { tab: Tab; onTab: (t: Tab) => void }) {
+  const item = (t: Tab, label: string) => (
+    <button
+      role="tab"
+      aria-selected={props.tab === t ? 'true' : 'false'}
+      onClick={() => props.onTab(t)}
+      class={`-my-2 py-2 text-xs font-medium tracking-wide ${props.tab === t ? 'text-neutral-100' : 'text-neutral-500'}`}
+    >
+      {label}
+    </button>
+  )
+  return (
+    <div role="tablist" class="flex gap-4">
+      {item('sessions', '历史会话')}
+      {item('files', '文件')}
+    </div>
+  )
+}
+
 /** 各目录历史会话的第一页：再进来先显示上次的，同时重新取 */
 const firstPages = new Map<string, DirSessions>()
 
 /** 该目录的历史会话，一页 30 个。正在跑的（托管的、终端里的）从概览流里取状态 */
-function History(props: { path: string; branch?: string }) {
+function History(props: { path: string; branch?: string; tabs: Element }) {
   const all = useOverview()
   const byId = createMemo(() => new Map(all.map((s) => [s.id, s])))
   const cached = firstPages.get(untrack(() => props.path))
@@ -289,7 +323,7 @@ function History(props: { path: string; branch?: string }) {
   return (
     <section class="mt-2">
       <div class="mb-2 flex items-center justify-between">
-        <h2 class="text-xs font-medium tracking-wide text-neutral-500">历史会话</h2>
+        {props.tabs}
         <Show when={list().length}>
           <button onClick={() => setEditing(!editing())} class="-my-2 -mr-2 px-2 py-2 text-xs text-neutral-400">
             {editing() ? '完成' : '编辑'}
