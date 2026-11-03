@@ -70,7 +70,7 @@ export interface QuotaWindow {
   resetsAt: number
 }
 
-/** 5h / 7d 额度，全账号一份，来自托管会话里的 rate_limit_event。概览流里有变化就推 `quota` 事件 */
+/** 5h / 7d 额度，全账号一份，来自托管会话里的 rate_limit_event 和终端 statusline（见 server/usage.ts）。概览流里有变化就推 `quota` 事件 */
 export interface Quota {
   five_hour?: QuotaWindow
   seven_day?: QuotaWindow

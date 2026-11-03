@@ -59,5 +59,7 @@ export function cacheParts(u: LastUsage | undefined, now: number): { hit: number
 /** 额度窗口：剩余百分比（100 − 已用，取整）和距重置 */
 export function quotaParts(w: QuotaWindow | undefined, now: number): { left: number; resets: string } | undefined {
   if (!w) return
+  // 过了重置时间：窗口已经清零，下一次请求才开新窗口、报新数
+  if (Math.floor(w.resetsAt) <= sec(now)) return { left: 100, resets: '已重置' }
   return { left: Math.round(100 - w.used), resets: fmtRemaining(w.resetsAt, now) }
 }

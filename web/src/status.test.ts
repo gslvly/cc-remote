@@ -44,4 +44,9 @@ describe('状态栏数据', () => {
   test('额度：显示剩余', () => {
     expect(quotaParts({ used: 16.3, resetsAt: at(2 * 3600 + 13 * 60) }, NOW)).toEqual({ left: 84, resets: '2h13m' })
   })
+
+  test('额度：过了重置时间算清零', () => {
+    expect(quotaParts({ used: 90, resetsAt: at(0) }, NOW)).toEqual({ left: 100, resets: '已重置' })
+    expect(quotaParts({ used: 90, resetsAt: at(-3600) }, NOW)).toEqual({ left: 100, resets: '已重置' })
+  })
 })

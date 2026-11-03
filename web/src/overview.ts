@@ -27,7 +27,7 @@ export function useOverview(): OverviewSessions {
   return sessions
 }
 
-/** 额度：概览流推来的（只来自托管会话的 rate_limit_event，服务端重启后要等有会话跑过一轮才有） */
+/** 额度：概览流推来的，全账号一份（托管会话的 rate_limit_event + 终端 statusline 存的；都没有时要等有会话跑过一轮才有） */
 export function useQuota(): Accessor<Quota | null> {
   useOverview()
   return quota

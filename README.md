@@ -340,7 +340,14 @@ macOS 执行 `sudo pmset -a autorestart 1`；Linux / Windows 在 BIOS 里打开�
   回退了对话的，原文放回输入框。只还原 Claude 用 Write / Edit 改的文件（Bash 改的不算）；对话回不到第一条之前，代码可以
 - **终端会话**：只读旁观、按整条消息刷新；终端退出或 `/clear` 换了新会话后，输入框直接出现，发消息即 resume
 - **状态栏**：`目录 · 模型 · effort` + 上下文 / 缓存 / 5h / 7d 四格，阈值变色，倒计时实时走；
-  数据全部取自 Claude Code 自己上报（最近一次响应的 usage、rate_limit_event），不另发请求
+  数据全部取自 Claude Code 自己上报（最近一次响应的 usage、rate_limit_event），不另发请求。
+  5h / 7d 全账号一份，但终端里的 `claude` 用掉的额度服务端看不到，要等手机上的会话再请求一次才更新；
+  想让终端里用的也实时算上，在你的 statusline 脚本读完 stdin 之后加一行，把 stdin 原样存给 cc-remote（没配 statusline 的话没法取）：
+
+  ```bash
+  input=$(cat)   # 脚本里原有的
+  f=~/.cc-remote/statusline.json; printf '%s' "$input" 2>/dev/null > "$f.$$" && mv -f "$f.$$" "$f"
+  ```
 
 手机开的会话不会出现在终端 `/resume` 列表（SDK 会话的入口标记使然），
 终端里用 `claude --resume <会话 id>` 接着聊。

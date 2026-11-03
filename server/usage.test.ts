@@ -1,10 +1,13 @@
 // 状态栏的数据：用量口径、额度换算、会话里的用量与模型信息
 import { CWD, idle, Transcript } from './testkit'
 import { describe, expect, test } from 'bun:test'
+import { renameSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { SDKAssistantMessage, SDKRateLimitInfo } from '@anthropic-ai/claude-agent-sdk'
+import { root } from './testenv'
 
 const { Session } = await import('./session')
-const { quotaFromEvent, readUsage, UsageTracker } = await import('./usage')
+const { mergeWindow, QuotaTracker, quotaFromEvent, quotaFromStatusline, readUsage, UsageTracker } = await import('./usage')
 
 const msg = (usage: object, model = 'claude-opus-5-5') => ({ model, usage, content: [] }) as unknown as SDKAssistantMessage['message']
 
@@ -51,6 +54,51 @@ describe('额度', () => {
 
   test('rate_limit_event 没有 unifiedWindows 时只更新它说的那个窗口', () => {
     expect(quotaFromEvent({ status: 'allowed', rateLimitType: 'five_hour', utilization: 0.5, resetsAt: 100 })).toEqual({ five_hour: { used: 50, resetsAt: 100 } })
+  })
+
+  test('终端 statusline 的 stdin：used_percentage 原样用，没有 rate_limits（API key 之类）就是空的', () => {
+    const input = { session_id: 'x', rate_limits: { five_hour: { used_percentage: 16.3, resets_at: 100 }, seven_day: { used_percentage: 83, resets_at: 200 } } }
+    expect(quotaFromStatusline(input)).toEqual({ five_hour: { used: 16.3, resetsAt: 100 }, seven_day: { used: 83, resetsAt: 200 } })
+    expect(quotaFromStatusline({ session_id: 'x' })).toEqual({})
+    expect(quotaFromStatusline(null)).toEqual({})
+  })
+
+  test('几个进程各报各的：新窗口优先，同一窗口取大的，旧窗口不理', () => {
+    const cur = { used: 40, resetsAt: 100 }
+    expect(mergeWindow(undefined, cur)).toBe(cur)
+    expect(mergeWindow(cur, { used: 2, resetsAt: 118 })).toEqual({ used: 2, resetsAt: 118 })
+    expect(mergeWindow(cur, { used: 90, resetsAt: 82 })).toBe(cur)
+    expect(mergeWindow(cur, { used: 35, resetsAt: 100 })).toBe(cur)
+    expect(mergeWindow(cur, { used: 45, resetsAt: 100 })).toEqual({ used: 45, resetsAt: 100 })
+  })
+
+  test('闲着的终端反复报旧数不会盖掉新的，也不重复推', () => {
+    const q = new QuotaTracker()
+    const seen: unknown[] = []
+    q.watch((v) => seen.push(v))
+    q.update({ five_hour: { used: 40, resetsAt: 100 }, seven_day: { used: 80, resetsAt: 200 } })
+    q.fromEvent({ status: 'allowed', rateLimitType: 'five_hour', utilization: 0.5, resetsAt: 100 })
+    q.update({ five_hour: { used: 40, resetsAt: 100 }, seven_day: { used: 80, resetsAt: 200 } })
+    q.update({})
+    expect(q.current).toEqual({ five_hour: { used: 50, resetsAt: 100 }, seven_day: { used: 80, resetsAt: 200 } })
+    expect(seen).toHaveLength(2)
+  })
+
+  test('跟着 statusline 存的文件：启动时有就读，改名换上新文件也读到', async () => {
+    const file = join(root, 'statusline.json')
+    const write = (used: number) => {
+      writeFileSync(`${file}.tmp`, JSON.stringify({ rate_limits: { five_hour: { used_percentage: used, resets_at: 100 } } }))
+      renameSync(`${file}.tmp`, file)
+    }
+    write(10)
+    const q = new QuotaTracker()
+    const next = () => new Promise<unknown>((resolve) => q.watch(resolve))
+    let got = next()
+    q.follow(file)
+    expect(await got).toEqual({ five_hour: { used: 10, resetsAt: 100 } })
+    got = next()
+    write(20)
+    expect(await got).toEqual({ five_hour: { used: 20, resetsAt: 100 } })
   })
 })
 

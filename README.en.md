@@ -368,7 +368,14 @@ Windows enable "AC Power Recovery" / "Restore on AC Power Loss" in the BIOS.
   When the conversation is rewound, the message text returns to the input box. Only files Claude changed with Write / Edit are restored (not Bash); the conversation can't go back past the first message, but code can
 - **Terminal sessions**: read-only, refreshed per complete message; once the terminal exits or `/clear` starts a new session, the input box appears and sending a message resumes it
 - **Status bar**: `directory · model · effort` + four cells for context / cache / 5h / 7d, colored by threshold, with live countdowns;
-  all data comes from what Claude Code itself reports (the latest response's usage, rate_limit_event) — no extra requests
+  all data comes from what Claude Code itself reports (the latest response's usage, rate_limit_event) — no extra requests.
+  5h / 7d is one per account, but the server can't see quota used by `claude` in a terminal until a phone session makes another request;
+  to count terminal usage live, add one line to your statusline script after it reads stdin, saving stdin as-is for cc-remote (requires a statusline):
+
+  ```bash
+  input=$(cat)   # already in your script
+  f=~/.cc-remote/statusline.json; printf '%s' "$input" 2>/dev/null > "$f.$$" && mv -f "$f.$$" "$f"
+  ```
 
 Sessions started from the phone don't appear in the terminal's `/resume` list (because of the SDK session's
 entrypoint marker); use `claude --resume <session id>` in the terminal to continue them.

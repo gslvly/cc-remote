@@ -236,6 +236,8 @@ console.log(`[cc-remote] roots：${roots.join('、') || '（无）'}`)
 console.log(`[cc-remote] 并发上限 ${config.maxLive}，空闲 ${config.idleMinutes} 分钟回收子进程`)
 console.log(`[cc-remote] claude：${localClaude.describe()}`)
 pruneOnStart()
+// 终端会话的额度：终端 statusline 把 stdin 存到这里（见 README「状态栏」）
+quota.follow(join(CONFIG_DIR, 'statusline.json'))
 // 听所有网卡时取第一个网卡地址，不对就在配置里写 publicUrl
 const publicUrl = config.publicUrl || urls[0] || `http://127.0.0.1:${server.port}`
 pusher.configure(config.push, publicUrl, webPush)

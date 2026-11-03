@@ -1,7 +1,10 @@
 // 状态栏（照搬 statusline）的数据：模型的上下文上限和 effort、主链最近一次用量、5h / 7d 额度。
 // 口径照抄 CLI 拼 statusline 输入的代码（见 REFERENCE.md「statusline 照搬」）
 import type { ModelUsage, Query, SDKAssistantMessage, SDKRateLimitInfo } from '@anthropic-ai/claude-agent-sdk'
-import type { LastUsage, Quota } from '../shared/protocol'
+import { watch } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+import { basename, dirname } from 'node:path'
+import type { LastUsage, Quota, QuotaWindow } from '../shared/protocol'
 
 // ---- 按模型记的：上下文上限、effort ----
 
@@ -123,8 +126,30 @@ export function quotaFromEvent(info: SDKRateLimitInfo): Quota {
   return q
 }
 
+/** 终端 statusline 的 stdin：rate_limits.<窗口>.used_percentage 已经是百分比，resets_at 是 epoch 秒 */
+export function quotaFromStatusline(input: unknown): Quota {
+  const limits = (input as { rate_limits?: Record<string, { used_percentage?: unknown; resets_at?: unknown } | undefined> } | null)?.rate_limits
+  const q: Quota = {}
+  for (const w of WINDOWS) {
+    const src = limits?.[w]
+    if (typeof src?.used_percentage === 'number' && typeof src.resets_at === 'number') q[w] = { used: src.used_percentage, resetsAt: src.resets_at }
+  }
+  return q
+}
+
 /**
- * 额度，全账号一份，只来自托管会话里的 rate_limit_event（每次 API 响应都带）。
+ * 几个来源（各个 claude 进程）各报各的，进程只知道自己最后一次请求时的额度，闲着的终端还会按 refreshInterval 反复报旧的。
+ * 所以不按先来后到：重置时间更晚的是新窗口，用它；同一窗口里用量只增不减，取大的
+ */
+export function mergeWindow(old: QuotaWindow | undefined, next: QuotaWindow): QuotaWindow {
+  if (!old || next.resetsAt > old.resetsAt) return next
+  if (next.resetsAt < old.resetsAt) return old
+  return next.used > old.used ? next : old
+}
+
+/**
+ * 额度，全账号一份。两个来源：托管会话里的 rate_limit_event（用量变了就发），
+ * 终端 statusline 存下的 stdin（见 follow；终端里的 claude 是别的进程，它的 rate_limit_event 这里收不到）。
  * 不用 usage 接口：它要另外请求 Anthropic，设了 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC 时不发，没请求过的进程里就是 null（见 REFERENCE.md）
  */
 export class QuotaTracker {
@@ -137,12 +162,43 @@ export class QuotaTracker {
   }
 
   fromEvent(info: SDKRateLimitInfo) {
-    const q = quotaFromEvent(info)
-    if (!q.five_hour && !q.seven_day) return
-    const next = { ...this.current, ...q }
+    this.update(quotaFromEvent(info))
+  }
+
+  update(q: Quota) {
+    const next: Quota = { ...this.current }
+    for (const w of WINDOWS) {
+      const win = q[w]
+      if (win) next[w] = mergeWindow(next[w], win)
+    }
+    if (!next.five_hour && !next.seven_day) return
     if (JSON.stringify(next) === JSON.stringify(this.current)) return
     this.current = next
     for (const fn of this.watchers) fn(next)
+  }
+
+  /**
+   * 跟着终端 statusline 存下的 stdin（README「状态栏」里那行，先写临时文件再改名）：启动时读一次，之后文件一换就读。
+   * 改名换的是新文件，所以监听目录而不是文件；没配这行就一直没有这个文件，什么也不做
+   */
+  follow(file: string) {
+    const read = () =>
+      readFile(file, 'utf8').then(
+        (text) => {
+          try {
+            this.update(quotaFromStatusline(JSON.parse(text)))
+          } catch {} // 不是 JSON（手改坏了之类），等下次
+        },
+        () => {},
+      )
+    void read()
+    try {
+      watch(dirname(file), (_, name) => {
+        if (name === basename(file)) void read()
+      })
+    } catch (e) {
+      console.warn(`[quota] 监听 ${dirname(file)} 失败，终端会话的额度看不到：${e instanceof Error ? e.message : String(e)}`)
+    }
   }
 }
 

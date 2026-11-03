@@ -40,7 +40,7 @@ const WINDOWS = [
   ['seven_day', '7d'],
 ] as const
 
-/** 5h / 7d 剩余和距重置。还不知道的窗口不显示（额度只来自托管会话的 rate_limit_event）。首页也用 */
+/** 5h / 7d 剩余和距重置。还不知道的窗口不显示（见 useQuota）。首页也用 */
 export function QuotaText(props: { quota: Quota | null }) {
   return (
     <For each={WINDOWS}>
