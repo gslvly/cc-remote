@@ -181,7 +181,7 @@ export function DirPage(props: { path: string }) {
           {/* isPending 顺带读了 info：没取到时 Loading 等它 */}
           {startRow(() => isPending(() => info()) || (!prompt().trim() && !images.list().length) || images.pending() || busy())}
           <Show when={tab() === 'files'} fallback={<History path={props.path} branch={info().branch} tabs={tabs()} />}>
-            <DirFiles root={info().path} tabs={tabs()} />
+            <DirFiles path={info().path} tabs={tabs()} />
           </Show>
         </Loading>
       </Errored>
@@ -202,11 +202,14 @@ export function DirPage(props: { path: string }) {
   )
 }
 
-/** 目录名、路径、分支、收藏星标。没 onFavorite（还没取到、打不开）时星标禁用，分支占位 */
+/**
+ * 目录名、路径、分支、收藏星标。没 onFavorite（还没取到、打不开）时星标禁用，分支占位。
+ * 返回走历史：从「文件」进的子目录一层层退回上级目录
+ */
 function DirHeader(props: { path: string; branch?: string; favorite?: boolean; onFavorite?: () => void }) {
   return (
     <header class="flex items-center gap-3">
-      <button onClick={go.home} class="-ml-1 px-1 text-2xl leading-none text-neutral-400">
+      <button onClick={go.back} aria-label="返回" class="-ml-1 px-1 text-2xl leading-none text-neutral-400">
         ‹
       </button>
       <div class="min-w-0 flex-1">

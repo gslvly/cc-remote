@@ -63,18 +63,6 @@ export function crumbs(list: FsList): { label: string; path: string | null }[] {
   return out
 }
 
-/** 目录页「文件」的面包屑：从这个目录起（显示目录名），不往上走。符号链接进到目录外面的，后面只接当前目录名 */
-export function dirCrumbs(root: string, path: string): { label: string; path: string }[] {
-  const sep = sepOf(root)
-  const join = (dir: string, seg: string) => (dir.endsWith(sep) ? dir + seg : dir + sep + seg)
-  const head = { label: basename(root), path: root }
-  if (path === root) return [head]
-  if (!path.startsWith(join(root, ''))) return [head, { label: basename(path), path }]
-  let cur = root
-  const rest = path.slice(join(root, '').length).split(sep).filter(Boolean)
-  return [head, ...rest.map((seg) => ({ label: seg, path: (cur = join(cur, seg)) }))]
-}
-
 export function ago(ms: number): string {
   const s = Math.max(0, (Date.now() - ms) / 1000)
   if (s < 60) return '刚刚'

@@ -3,7 +3,7 @@
 //  2. 浏览页打开「文件」开关，列出文件和大小（隐藏文件不列）
 //  3. 文本带行号；Markdown 渲染、能切源码；图片显示；html 当文本显示、不执行；大文件只显示开头；二进制不预览；
 //     下载用原文件名（中文、括号）
-//  4. 目录页切到「文件」：进子目录、面包屑回来、点开文件、显示隐藏；离开再回来还在原处
+//  4. 目录页切到「文件」：点子目录进它的目录页、点开文件、返回回到上级目录、显示隐藏
 //  5. Claude 用 Write 写的文件，工具条目上点「打开」能看到内容；返回上一页时弹层关掉
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -99,7 +99,7 @@ await run(
     await close()
     check((await dialog.count()) === 0, '关掉弹层')
 
-    // 目录页切到「文件」：子目录就地进去、面包屑从这个目录起，点文件全屏看；离开再回来还是「文件」、还在那个子目录
+    // 目录页切到「文件」：点子目录进它的目录页（标题、地址都换），还是「文件」；点文件全屏看；返回回到上级目录
     const goDir = () => page.evaluate((d) => (location.hash = `#/dir?path=${encodeURIComponent(d)}`), dir)
     await page.evaluate(() => {
       localStorage.removeItem('ccr-dir-tab')
@@ -112,21 +112,22 @@ await run(
     check(dirFiles.includes('sub') && dirFiles.includes('README.md') && !dirFiles.includes('.secret'), '目录页列出子目录和文件', dirFiles)
     await page.locator('li button', { hasText: /^sub/ }).click()
     await page.locator('li button', { hasText: 'inner.txt' }).waitFor()
-    const trail = (await text('section nav')).replace(/\s/g, '')
-    check(trail === 'files/sub', '进子目录，面包屑从这个目录起', trail)
+    const subPage = { title: await page.locator('header h1').innerText(), hash: await page.evaluate(() => location.hash) }
+    check(
+      subPage.title === 'sub' && subPage.hash === `#/dir?path=${encodeURIComponent(join(dir, 'sub'))}`,
+      '进子目录的目录页：标题、地址换成子目录',
+      subPage,
+    )
     await shot('files-dir-tab')
     await open('inner.txt')
     check((await dialog.innerText()).includes('in sub'), '目录页点文件全屏看')
     await close()
-    await page.evaluate(() => (location.hash = '#/'))
-    await goDir()
-    await page.locator('li button', { hasText: 'inner.txt' }).waitFor()
-    check(true, '回到目录页还是「文件」、还在子目录')
-    await page.locator('section nav button', { hasText: 'files' }).click()
+    await page.getByRole('button', { name: '返回' }).click()
     await page.locator('li button', { hasText: 'notes.txt' }).waitFor()
+    check((await page.locator('header h1').innerText()) === 'files', '返回回到上级目录，还是「文件」')
     await page.getByRole('button', { name: '显示隐藏' }).click()
     await page.locator('li button', { hasText: '.secret' }).waitFor()
-    check(true, '面包屑回到目录，显示隐藏文件')
+    check(true, '显示隐藏文件')
 
     // 工具条目上的「打开」
     const s = await api('/sessions', {
