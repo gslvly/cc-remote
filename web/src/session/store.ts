@@ -47,9 +47,12 @@ export interface SessionStore {
   /** 断开内容流，内容留在缓存里 */
   detach(): void
   actions: {
-    send(text: string, images?: ImageAttachment[]): Promise<unknown>
+    /** takeover：终端空闲占着的先接管（关掉终端里的 claude） */
+    send(text: string, images?: ImageAttachment[], takeover?: boolean): Promise<unknown>
     /** ! 命令：开始跑就返回，输入输出经内容流到达 */
-    bash(command: string): Promise<unknown>
+    bash(command: string, takeover?: boolean): Promise<unknown>
+    /** 打断并接管：终端里正在跑也关掉 */
+    takeover(): Promise<unknown>
     decide(reqId: string, d: PermissionDecisionBody): Promise<unknown>
     interrupt(): Promise<unknown>
     /** 排着的这条立即发送：还排着就中断这一轮，它接着发出 */
@@ -180,9 +183,10 @@ function createEntry(id: string): SessionStore {
   }
 
   const actions = {
-    send: (text: string, images?: ImageAttachment[]) =>
-      api(`/sessions/${id}/messages`, { text, images: images?.length ? images : undefined } satisfies SendMessageBody),
-    bash: (command: string) => api(`/sessions/${id}/bash`, { command } satisfies BashBody),
+    send: (text: string, images?: ImageAttachment[], takeover?: boolean) =>
+      api(`/sessions/${id}/messages`, { text, images: images?.length ? images : undefined, takeover } satisfies SendMessageBody),
+    bash: (command: string, takeover?: boolean) => api(`/sessions/${id}/bash`, { command, takeover } satisfies BashBody),
+    takeover: () => api<SessionInfo>(`/sessions/${id}/takeover`, {}).then(setInfo),
     decide: (reqId: string, d: PermissionDecisionBody) => api(`/sessions/${id}/permissions/${reqId}`, d),
     interrupt: () => api(`/sessions/${id}/interrupt`, {}),
     sendNow: (uuid: string) => api(`/sessions/${id}/send-now`, { uuid } satisfies SendNowBody),

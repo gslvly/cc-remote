@@ -30,8 +30,8 @@ export interface SessionInfo {
   model?: string
   permissionMode?: PermissionMode
   /**
-   * 终端里正占着的会话（登记表 ~/.claude/sessions 里有进程持有这个 id）：只读旁观。
-   * 终端退出、或 /clear 换了新会话后就没有这个字段，成了历史会话，发消息直接 resume
+   * 终端里正占着的会话（登记表 ~/.claude/sessions 里有进程持有这个 id）：旁观，接管（见 SendMessageBody.takeover）后才能操作。
+   * 终端退出、被接管、或 /clear 换了新会话后就没有这个字段，成了历史会话，发消息直接 resume
    */
   terminal?: 'running'
   /** 状态栏：这个模型的上下文上限、effort（按模型记着，见 server/usage.ts）。还不知道就没有 */
@@ -272,6 +272,11 @@ export interface ImageAttachment {
 export interface SendMessageBody {
   text: string
   images?: ImageAttachment[]
+  /**
+   * 终端占着的会话先接管：关掉终端里的 claude 再 resume。只接空闲的，正在跑、在等人操作的回 409，
+   * 要接就先 POST /api/sessions/:id/takeover（打断并接管，回 SessionInfo）。不带时终端占着的也回 409
+   */
+  takeover?: boolean
 }
 
 /** POST /api/sessions/:id/send-now：这条还在排队就中断这一轮，它接着作为新的一轮发出；已经被采纳了就什么都不做 */
@@ -285,6 +290,8 @@ export interface SendNowBody {
  */
 export interface BashBody {
   command: string
+  /** 同 SendMessageBody.takeover */
+  takeover?: boolean
 }
 
 /** POST /api/sessions/:id/mode：子进程被回收了就记下，下次起子进程时带上 */

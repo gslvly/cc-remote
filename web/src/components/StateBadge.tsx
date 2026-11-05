@@ -30,7 +30,7 @@ const GLYPH: Record<SessionState, string> = {
   idle: 'text-emerald-500',
 }
 
-/** 状态点；终端会话用 ▣（只读） */
+/** 状态点；终端会话用 ▣ */
 export function StateDot(props: { state: SessionState; terminal?: SessionInfo['terminal'] }) {
   return (
     <Show when={props.terminal} fallback={<span class={`size-2 shrink-0 rounded-full ${DOT[props.state]}`} />}>

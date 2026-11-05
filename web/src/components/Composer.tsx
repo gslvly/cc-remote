@@ -4,6 +4,7 @@ import { loadDraft, saveDraft } from '../draft'
 import { errorText, MODE_BORDER } from '../format'
 import { CommandMenu, slashQuery } from './CommandMenu'
 import { attachments, createImages, ImageButton, ImageStrip } from './Images'
+import { BACK_TO_TERMINAL } from './TerminalBar'
 
 export function Composer(props: {
   state: SessionState
@@ -11,6 +12,8 @@ export function Composer(props: {
   mode?: PermissionMode
   /** 只打开看、还没续接的历史会话：发消息就续接，进标签条 */
   history?: boolean
+  /** 电脑终端里开着、空闲的会话：发出去先确认，关掉终端里的 claude 接到手机上 */
+  takeover?: boolean
   /** 会话的目录：打 / 时按它取命令列表（还不知道就不弹） */
   cwd?: string
   /** 草稿按它存（会话 id），只取一次 */
@@ -70,17 +73,22 @@ export function Composer(props: {
     }
   }
 
+  /** 终端占着的：发之前确认要接管 */
+  const confirmed = () => !props.takeover || confirm(`发出去会关掉电脑终端里的 claude，在手机上接着聊。\n${BACK_TO_TERMINAL}`)
+
   const submit = () => {
     if (showStop()) return run(props.onInterrupt)
     if (empty() || images.pending()) return
     const cmd = command()
     if (cmd !== undefined) {
       if (images.list().length) return setError('命令不能带图片')
+      if (!confirmed()) return
       return run(
         () => props.onBash(cmd),
         () => setText(''),
       )
     }
+    if (!confirmed()) return
     const t = text()
     const sent = images.list()
     return run(
@@ -103,6 +111,9 @@ export function Composer(props: {
     <div class="border-t border-neutral-800 bg-neutral-950 px-3 pt-2 pb-[max(0.5rem,var(--safe-bottom,env(safe-area-inset-bottom)))]">
       <Show when={slash() !== undefined && props.cwd}>
         {(cwd) => <CommandMenu cwd={cwd()} query={slash() ?? ''} onPick={pick} />}
+      </Show>
+      <Show when={props.takeover}>
+        <p class="px-1 pb-1 text-xs text-neutral-500">▣ 电脑终端里开着这个会话，发消息就接到手机上</p>
       </Show>
       <Show when={command() !== undefined}>
         <p class="px-1 pb-1 text-xs text-pink-400">命令模式：在会话目录里跑，输出也给 Claude 看</p>
@@ -131,7 +142,7 @@ export function Composer(props: {
             } else if (!busy()) void submit()
           }}
           enterkeyhint="send"
-          placeholder={busyState() ? '排队发给 Claude…' : props.history ? '发消息即续接…' : '继续对话…'}
+          placeholder={busyState() ? '排队发给 Claude…' : props.history ? '发消息即续接…' : props.takeover ? '发消息即接管…' : '继续对话…'}
           class={`min-h-10 flex-1 resize-none rounded-2xl border bg-neutral-900 px-3.5 py-2 text-base leading-6 outline-none ${
             (command() !== undefined && 'border-pink-700') ||
             (props.mode && MODE_BORDER[props.mode]) ||

@@ -1,8 +1,9 @@
-// 终端里正在跑的会话：读 Claude Code 的运行中会话登记表 ~/.claude/sessions/<pid>.json。
+// 终端里正在跑的会话：读 Claude Code 的运行中会话登记表 ~/.claude/sessions/<pid>.json；手机上接管时关掉持有它的进程。
 // 判断「进程还在」照抄 Claude Code 自己的做法：pid 活着，并且启动时间与登记的 procStart 一致（残留的登记可能撞上被复用的 pid）。
 // procStart 在 macOS 上是 ps 的 lstart；Linux 上新版（实测 2.1.307）是 /proc/<pid>/stat 的 starttime（纯数字），按格式分别比对。
 // Windows 上 Claude Code 登记的是 procStartFt（FILETIME），不比对，只看 pid 活着。
 // 同目录的 <pid>.<hash>.key 是密钥，只读 <pid>.json
+import type { EffortLevel } from '@anthropic-ai/claude-agent-sdk'
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { CLAUDE_DIR } from './config'
@@ -40,13 +41,69 @@ interface Record {
 const valid = (r: Partial<Record> | undefined): r is Record =>
   typeof r?.pid === 'number' && typeof r.sessionId === 'string' && typeof r.cwd === 'string'
 
-function alive(pid: number) {
+export function alive(pid: number) {
   try {
     process.kill(pid, 0)
     return true
   } catch (e) {
     return (e as NodeJS.ErrnoException).code === 'EPERM'
   }
+}
+
+/** 终端里的 claude 启动时给的 --model、--effort。接管后子进程照着起：模型、effort 一变，缓存就从头写。没给的由配置定，两边读的是同一份 */
+export interface LaunchFlags {
+  model?: string
+  effort?: EffortLevel
+}
+
+const EFFORTS = new Set<unknown>(['low', 'medium', 'high', 'xhigh', 'max'] satisfies EffortLevel[])
+
+/** 同 CLI：给了几次的取最后一次，--model x 与 --model=x 两种写法 */
+export function parseFlags(argv: string[]): LaunchFlags {
+  const get = (name: string) => {
+    let v: string | undefined
+    argv.forEach((a, i) => {
+      if (a === name) v = argv[i + 1]
+      else if (a.startsWith(`${name}=`)) v = a.slice(name.length + 1)
+    })
+    return v
+  }
+  const effort = get('--effort')
+  return { model: get('--model') || undefined, effort: EFFORTS.has(effort) ? (effort as EffortLevel) : undefined }
+}
+
+/** Linux 读 /proc/<pid>/cmdline（\0 分隔，原样）；别的按 ps 的输出用空格切（模型名、effort 里没有空格）。读不到（Windows）当作没给 */
+export async function launchFlags(pid: number): Promise<LaunchFlags> {
+  try {
+    const raw = await readFile(`/proc/${pid}/cmdline`, 'utf8').catch(async () => {
+      const ps = Bun.spawn(['ps', '-o', 'args=', '-p', String(pid)], { stdout: 'pipe', stderr: 'ignore' })
+      return (await new Response(ps.stdout).text()).trim().replace(/\s+/g, '\0')
+    })
+    return parseFlags(raw.split('\0'))
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * 关掉终端里的 claude：先 SIGTERM，它自己收尾（复原终端设置；transcript 是逐条写的，不丢），过 ms 还在再 SIGKILL。
+ * Windows 上 process.kill 本来就是直接结束。返回关没关掉
+ */
+export async function terminate(pid: number, ms = 5000): Promise<boolean> {
+  const gone = async (ms: number) => {
+    for (const end = Date.now() + ms; alive(pid); await Bun.sleep(50)) if (Date.now() > end) return false
+    return true
+  }
+  for (const [sig, wait] of [['SIGTERM', ms], ['SIGKILL', 2000]] as const) {
+    try {
+      process.kill(pid, sig)
+    } catch {
+      // 已经没了，或不是自己的进程（EPERM）
+      return !alive(pid)
+    }
+    if (await gone(wait)) return true
+  }
+  return false
 }
 
 /** pid → 启动时间。pid 活着就一直有效，查过的不再查 */

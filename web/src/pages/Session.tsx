@@ -155,7 +155,7 @@ export function SessionPage(props: { id: string }) {
         <header class="flex items-center gap-2 border-b border-neutral-800 px-4 py-2">
           <div class="min-w-0 flex-1">
             <h1 class="truncate text-sm font-medium">{s.info()?.title ?? '…'}</h1>
-            {/* 目录 · 模型 · 上下文上限 · effort · 权限模式（默认的不显示），点模型或模式那段弹出切换（终端会话只读） */}
+            {/* 目录 · 模型 · 上下文上限 · effort · 权限模式（默认的不显示），点模型或模式那段弹出切换（终端会话接管前不能切） */}
             <p class="min-h-4 truncate text-xs text-neutral-500">
               <Show when={s.info()}>
                 {(i) => (
@@ -250,31 +250,32 @@ export function SessionPage(props: { id: string }) {
         </div>
 
         <Show when={s.info()?.queued}>{(q) => <QueuedBox queued={q()} onSendNow={s.actions.sendNow} />}</Show>
-        {/* 终端还占着的会话没有输入框，只读；终端放手后就是历史会话，输入框出现 */}
+        {/* 终端占着、正在跑的会话没有输入框，只能打断并接管；空闲的照常输入，发出去先接管。终端放手后就是历史会话 */}
         <Show
-          when={s.info()?.terminal}
+          when={s.info()?.terminal && s.info()?.state !== 'idle'}
           fallback={
             <Composer
               state={s.info()?.state ?? 'starting'}
               mode={s.info()?.permissionMode}
               history={history()}
+              takeover={!!s.info()?.terminal}
               cwd={s.info()?.cwd}
               draftKey={props.id}
               fill={fill()}
               onSend={(text, images) => {
                 // 自己发的东西要看到回应：往上翻着也回到跟随
                 stick = true
-                return s.actions.send(text, images)
+                return s.actions.send(text, images, !!s.info()?.terminal)
               }}
               onBash={(cmd) => {
                 stick = true
-                return s.actions.bash(cmd)
+                return s.actions.bash(cmd, !!s.info()?.terminal)
               }}
               onInterrupt={s.actions.interrupt}
             />
           }
         >
-          <TerminalBar />
+          <TerminalBar state={s.info()!.state} onTakeover={s.actions.takeover} />
         </Show>
 
         <Show when={picking() && s.info()}>

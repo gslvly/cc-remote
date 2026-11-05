@@ -1,6 +1,6 @@
 // 端到端测试脚手架：起测试服务端、登录、建测试目录、模拟终端、测完清理。每批的脚本只写自己的步骤：
 //
-//   import { run, api, until, check, testDir, terminal, events, text } from './harness'
+//   import { run, api, until, check, testDir, terminal, interactive, events, text } from './harness'
 //   await run(async ({ page }) => { … }, { browser: true })
 //
 // 跑：bun scripts/e2e/<名字>.ts（Claude 按量计费，服务端和「终端」都用 haiku）
@@ -79,6 +79,44 @@ export function terminal(cwd: string, prompt: string, ...args: string[]) {
   terminals.push(proc)
   const output = new Response(proc.stdout).text()
   return { proc, output, exited: proc.exited, get running() { return proc.exitCode === null } }
+}
+
+/**
+ * 交互式的「终端」：在 PTY 里起 claude，发一句 prompt 后停在空闲（claude -p 跑完就退了）。新目录先过信任对话框。
+ * 认屏幕上的字只认单词：Ink 按格子重画，词与词之间可能是挪光标的转义
+ */
+export async function interactive(cwd: string, prompt: string, ...args: string[]) {
+  let out = ''
+  const dec = new TextDecoder()
+  const proc = Bun.spawn(['claude', ...args], {
+    cwd,
+    env: env(),
+    terminal: { cols: 120, rows: 40, data: (_t, d) => void (out += dec.decode(d, { stream: true })) },
+  })
+  terminals.push(proc)
+  const screen = () => out.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[\]P][^\x07\x1b]*(\x07|\x1b\\)?/g, '')
+  const term = proc.terminal!
+  // 等不到时带上屏幕上最后的字，看是卡在了哪个对话框
+  const wait = (label: string, re: RegExp) =>
+    until(label, () => re.test(screen()), 30_000).catch((e: Error) => {
+      throw new Error(`${e.message}\n${screen().slice(-1500)}`)
+    })
+  // 输入框底下那行：默认模式是「? for shortcuts」，别的模式是「(shift+tab to cycle)」
+  const ready = /shortcuts|shift\+tab/i
+  await wait('终端里的 claude 起来', new RegExp(`trust|${ready.source}`, 'i'))
+  if (/trust/i.test(screen())) {
+    // 默认选的是「No, exit」（实测 2.1.314），往下挪到「Yes」再回车
+    await sleep(500)
+    out = ''
+    term.write('\x1b[B')
+    await sleep(300)
+    term.write('\r')
+    await wait('过了信任对话框', ready)
+  }
+  term.write(prompt)
+  await sleep(300)
+  term.write('\r')
+  return { proc, exited: proc.exited, get running() { return proc.exitCode === null && proc.signalCode === null } }
 }
 
 let page: Page | undefined

@@ -20,7 +20,7 @@ import { rememberSent } from './images'
 import { pusher } from './push'
 import { Run, type RunHost } from './run'
 import { bashInput, bashOutput, runShell } from './shell'
-import type { Holder } from './terminal'
+import type { Holder, LaunchFlags } from './terminal'
 import { fromUserText, IMAGE_ONLY, keptBefore, promptTitle, readTranscript, titleOf, type TranscriptEntry } from './transcript'
 import { modelFacts, UsageTracker } from './usage'
 
@@ -252,6 +252,12 @@ export class Session implements RunHost {
     if (!title || title === this.title) return
     this.title = title
     this.emitState()
+  }
+
+  /** 从终端接管过来（见 SessionManager.takeover）：模型、effort 照终端启动时给的，没给就由配置定，以前在手机上选的不算了 */
+  inherit(o: LaunchFlags) {
+    this.modelChoice = o.model
+    this.effortChoice = o.effort
   }
 
   /** 子进程被回收了就先 resume；并发上限、终端是否占着、transcript 是否对齐由 SessionManager 先处理 */

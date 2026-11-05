@@ -1,4 +1,4 @@
-// /api/sessions 下的路由：开会话、内容流、发消息、审批、切模式模型、打断、回退、关掉删除。图片的在 images.ts，组合进来
+// /api/sessions 下的路由：开会话、内容流、发消息、接管终端会话、审批、切模式模型、打断、回退、关掉删除。图片的在 images.ts，组合进来
 import { type Context, Hono } from 'hono'
 import type {
   BashBody,
@@ -117,17 +117,17 @@ export function sessionRoutes(sessions: SessionManager, roots: string[]) {
     return c.json(s.history(Number(c.req.query('before')) || 0))
   })
 
-  // 历史会话发消息就 resume；终端还占着的不行（只读）
+  // 历史会话发消息就 resume；终端还占着的要带 takeover 先接管（只接空闲的）
   r.post('/:id/messages', async (c) => {
     const s = await sessions.open(c.req.param('id'))
     if (!s) return c.json(NOT_FOUND, 404)
-    const { text = '', images } = await c.req.json<SendMessageBody>()
+    const { text = '', images, takeover } = await c.req.json<SendMessageBody>()
     const bad = badImages(images)
     if (bad) return c.json({ error: bad }, 400)
     if (!text.trim() && !images?.length) return c.json({ error: '消息不能为空' }, 400)
     if (CLEAR_COMMAND.test(text.trim())) return c.json(CLEARED, 400)
     try {
-      await sessions.send(s, text, images)
+      await sessions.send(s, text, images, takeover === true)
     } catch (e) {
       return commandError(c, e)
     }
@@ -138,14 +138,26 @@ export function sessionRoutes(sessions: SessionManager, roots: string[]) {
   r.post('/:id/bash', async (c) => {
     const s = await sessions.open(c.req.param('id'))
     if (!s) return c.json(NOT_FOUND, 404)
-    const { command } = await c.req.json<BashBody>()
+    const { command, takeover } = await c.req.json<BashBody>()
     if (typeof command !== 'string' || !command.trim()) return c.json({ error: '命令不能为空' }, 400)
     try {
-      await sessions.bash(s, command.trim())
+      await sessions.bash(s, command.trim(), takeover === true)
     } catch (e) {
       return commandError(c, e)
     }
     return c.json({ ok: true })
+  })
+
+  // 打断并接管：终端里正在跑、在等人操作也关掉，接到手机上（见 SessionManager.takeover）
+  r.post('/:id/takeover', async (c) => {
+    const s = await sessions.open(c.req.param('id'))
+    if (!s) return c.json(NOT_FOUND, 404)
+    try {
+      await sessions.takeover(s, true)
+    } catch (e) {
+      return commandError(c, e)
+    }
+    return c.json(s.info())
   })
 
   r.post('/:id/permissions/:reqId', async (c) => {

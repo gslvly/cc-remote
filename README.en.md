@@ -7,7 +7,7 @@
 cc-remote is a mobile-first remote control for [Claude Code](https://code.claude.com). The server runs on
 your computer (macOS / Linux / Windows); your phone reaches it over your LAN or any overlay network you
 choose, and you drive multiple real Claude Code sessions from a phone PWA: streaming chat, tool cards,
-permission approvals, `AskUserQuestion` answers, plan approvals, terminal-session watching, and push
+permission approvals, `AskUserQuestion` answers, plan approvals, terminal-session watching and takeover, and push
 notifications when input is needed.
 
 Unlike the official Remote Control, it works with API keys and custom `ANTHROPIC_BASE_URL`, and the phone
@@ -25,7 +25,7 @@ Keywords: `claude-code` `claude-code-remote` `remote-control` `remote-control-al
 - ✅ **Approvals passed straight through**: permission requests (allow / allow for this session / deny), `AskUserQuestion` options, plan approval, interrupt, permission-mode switching (the terminal's `Esc` / `Shift+Tab`)
 - ⌨️ **Everyday terminal moves**: `/` commands and skills, images / screenshots, `!` shell commands, model / effort switching, rewind (double `Esc`), per-session drafts
 - 📂 **View and grab files**: tap "打开" on a tool card for any file Claude read or wrote, or turn on "文件" in the browser tab; code with line numbers, rendered Markdown, images / audio / video / PDF inline, download or save to the phone via the system share sheet (limited to roots)
-- 👀 **Read-only view of terminal sessions**: watch sessions running in your computer's terminal live; once the terminal exits or runs `/clear`, it becomes a history session you can keep chatting in from the phone (or `claude --resume <id>`)
+- 👀 **Watch and take over terminal sessions**: watch sessions running in your computer's terminal live; to keep chatting from the phone, take it over — the terminal's claude is closed and the session resumes on the phone, still hitting the prompt cache. Back at the computer, `claude -c` takes it back
 - 📊 **Status bar**: model, context usage, cache hit rate, 5h / 7d quota — same numbers as the terminal statusline
 - 🔔 **Push to phone**: when approval is needed, a turn finishes, or quota is rejected (with deep links); also when a session in your computer's terminal has been waiting for approval for over 10 seconds, so you know to go back. Native PWA notifications over HTTPS, or via Bark / ntfy
 - 🔑 **Any auth**: whatever your terminal `claude` uses — subscription login, API key, `ANTHROPIC_BASE_URL` proxies / compatible endpoints, Bedrock and other cloud providers
@@ -366,7 +366,11 @@ Windows enable "AC Power Recovery" / "Restore on AC Power Loss" in the BIOS.
   a non-default permission mode shows in its color in the header, and the input box is outlined in the same color
 - **Rewind** (like pressing Esc twice in the terminal): when idle, tap one of your messages → "Rewind to here"; it previews the files to restore, then you pick code and conversation, conversation only, or code only.
   When the conversation is rewound, the message text returns to the input box. Only files Claude changed with Write / Edit are restored (not Bash); the conversation can't go back past the first message, but code can
-- **Terminal sessions**: read-only, refreshed per complete message; once the terminal exits or `/clear` starts a new session, the input box appears and sending a message resumes it
+- **Terminal sessions**: while watching, refreshed per complete message. When the terminal is idle the input box is there as usual; sending asks for confirmation, then closes the terminal's claude (SIGTERM) and resumes the session.
+  While it is running or waiting for approval there is only "Interrupt and take over", which cuts that turn short (an approval pending in the terminal is dropped). `--model` / `--effort` given when the terminal started carry over; otherwise both sides read the same settings.
+  The prompt cache matches on the request prefix and isn't tied to a process, so the first request after a takeover reads the cache just like continuing in the terminal would — nothing is rewritten from scratch.
+  What lives only in the terminal process is lost: background tasks (background Bash, Monitor, background subagents), "allow for this session" approvals, directories added with `/add-dir`, and unsent text in the input box.
+  Back at the computer, run `claude -c` (or `claude --resume <id>`) in the same directory to take it back; an idle child on the phone side steps aside automatically. Once the terminal exits or `/clear` starts a new session, it is simply a history session
 - **Status bar**: `directory · model · effort` + four cells for context / cache / 5h / 7d, colored by threshold, with live countdowns;
   all data comes from what Claude Code itself reports (the latest response's usage, rate_limit_event) — no extra requests.
   5h / 7d is one per account, but the server can't see quota used by `claude` in a terminal until a phone session makes another request;

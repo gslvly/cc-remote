@@ -7,7 +7,7 @@ import { lastActivity } from './activity'
 import { CLAUDE_DIR } from './config'
 import { checkDir } from './fs'
 import { ConflictError, Session } from './session'
-import { type Holder, scanHolders } from './terminal'
+import { type Holder, launchFlags, scanHolders, terminate } from './terminal'
 import { promptTitle, sessionInfo, titleOf } from './transcript'
 import { onFacts } from './usage'
 
@@ -80,16 +80,35 @@ export class SessionManager {
     return this.removing.has(id) || this.sessions.get(id) !== s ? undefined : s
   }
 
-  /** 发消息。子进程被回收了、或者是历史会话，就 resume */
-  async send(s: Session, text: string, images?: ImageAttachment[]) {
-    await this.prepare(s)
+  /** 发消息。子进程被回收了、或者是历史会话，就 resume；takeover：终端空闲占着的先接管过来 */
+  async send(s: Session, text: string, images?: ImageAttachment[], takeover = false) {
+    await this.prepare(s, takeover)
     s.send(text, images)
   }
 
   /** ! 命令（见 Session.bash）。跑完要把输入输出交给子进程，同发消息 */
-  async bash(s: Session, command: string) {
-    await this.prepare(s)
+  async bash(s: Session, command: string, takeover = false) {
+    await this.prepare(s, takeover)
     s.bash(command)
+  }
+
+  /**
+   * 终端占着的会话接到手机上：关掉终端里的 claude，登记表里没了它就是历史会话，之后照常 resume。
+   * 缓存按请求的前缀命中、不绑进程，接着发不会从头写（模型、effort 照终端的，见 LaunchFlags）。
+   * interrupt：终端正在跑、在等人操作时也关（这一轮就断在那）；否则只关空闲的，免得打断终端里刚发出去的
+   */
+  async takeover(s: Session, interrupt: boolean) {
+    // 几个终端开着同一个会话时，扫出来的只有状态最新的那个，挨个关
+    for (let n = 0; ; n++) {
+      await this.rescan()
+      const h = this.holders.get(s.id)
+      if (!h) return
+      if (n === 3) throw new ConflictError('终端里一直有 claude 开着这个会话')
+      if (!interrupt && h.status && h.status !== 'idle') throw new ConflictError('终端里正在跑，等它停下，或点「打断并接管」')
+      s.inherit(await launchFlags(h.pid))
+      console.log(`[session ${s.id.slice(0, 8)}] 接管终端里的会话，关掉 pid ${h.pid}`)
+      if (!(await terminate(h.pid))) throw new ConflictError('关不掉终端里的 claude，回电脑上退出它')
+    }
   }
 
   /** 回退（见 Session.rewind）。没有子进程时要现起一个还原文件，同发消息 */
@@ -98,13 +117,14 @@ export class SessionManager {
     return s.rewind(uuid, restore, dryRun)
   }
 
-  /** 要起子进程之前：先确认没在删、终端没占着，把 transcript 里新写的补上，到并发上限就腾个位置 */
-  private async prepare(s: Session) {
+  /** 要起子进程之前：先确认没在删、终端没占着（takeover 就先接管），把 transcript 里新写的补上，到并发上限就腾个位置 */
+  private async prepare(s: Session, takeover = false) {
     const gone = () => this.removing.has(s.id) || this.sessions.get(s.id) !== s
     if (gone()) throw new ConflictError('会话已删除')
     if (s.live) return
-    await this.scan()
-    if (s.terminal === 'running') throw new ConflictError('这个会话正在终端里运行，只能旁观')
+    if (takeover) await this.takeover(s, false)
+    else await this.scan()
+    if (s.terminal === 'running') throw new ConflictError('这个会话正在终端里运行，要先接管到手机上')
     await s.sync()
     // 等待期间开始删了
     if (gone()) throw new ConflictError('会话已删除')
@@ -200,6 +220,12 @@ export class SessionManager {
       .catch((e) => console.error('[terminal] 扫登记表失败', e))
       .finally(() => (this.scanning = undefined))
     return this.scanning
+  }
+
+  /** 重新扫一遍：正在扫的那次可能是关进程之前开始的 */
+  private async rescan() {
+    await this.scanning
+    await this.scan()
   }
 
   private async doScan() {

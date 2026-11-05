@@ -1,4 +1,4 @@
-// 终端会话：只读旁观 → 终端退出后直接发消息 resume → 目录页的历史会话 → 打开历史会话发消息自动 resume
+// 终端会话：旁观（接管见 takeover.ts）→ 终端退出后直接发消息 resume → 目录页的历史会话 → 打开历史会话发消息自动 resume
 import { api, check, run, shot, sleep, terminal, testDir, until } from './harness'
 
 await run(
@@ -19,8 +19,8 @@ await run(
     await shot('1-home')
 
     await page.evaluate((id) => (location.hash = `#/s/${id}`), t.id)
-    await page.waitForSelector('text=终端里正在用这个会话')
-    check((await page.locator('textarea').count()) === 0, '终端在跑时只读，没有输入框')
+    await page.waitForSelector('text=终端里正在跑这个会话')
+    check((await page.locator('textarea').count()) === 0, '终端在跑时没有输入框，只能打断并接管')
     check((await page.locator('nav [aria-current="page"]').count()) === 0, '终端会话不进标签条')
     const seen: number[] = []
     while (term.running) {

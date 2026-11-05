@@ -53,7 +53,7 @@ export function QuotaText(props: { quota: Quota | null }) {
   )
 }
 
-/** onContext：点「上下文」那格（弹出压缩）；不给就不能点（终端会话只读） */
+/** onContext：点「上下文」那格（弹出压缩）；不给就不能点（终端会话接管前不能压缩） */
 export function StatusLine(props: { info: SessionInfo; quota: Quota | null; onContext?: () => void }) {
   const ctx = () => ctxParts(props.info.usage, props.info.contextWindow)
   const cache = () => cacheParts(props.info.usage, now())
