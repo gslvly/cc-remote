@@ -112,9 +112,6 @@ export function Composer(props: {
       <Show when={slash() !== undefined && props.cwd}>
         {(cwd) => <CommandMenu cwd={cwd()} query={slash() ?? ''} onPick={pick} />}
       </Show>
-      <Show when={props.takeover}>
-        <p class="px-1 pb-1 text-xs text-neutral-500">▣ 电脑终端里开着这个会话，发消息就接到手机上</p>
-      </Show>
       <Show when={command() !== undefined}>
         <p class="px-1 pb-1 text-xs text-pink-400">命令模式：在会话目录里跑，输出也给 Claude 看</p>
       </Show>
